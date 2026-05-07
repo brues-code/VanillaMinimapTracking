@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace Blips {
@@ -61,10 +60,10 @@ struct BlipHoverState {
 
 static bool g_hooksInstalled = false;
 static std::unordered_map<std::string, Game::HTEXTURE__ *> g_textureCache;
-static std::unordered_map<uint64_t, Blip> g_trackedUnitBlips;
-static std::unordered_map<std::string, std::unordered_set<uint64_t>> g_unitTokenGuids;
-static std::unordered_map<std::string, std::unordered_set<uint64_t>> g_ownerGuids;
-static std::unordered_map<uint64_t, std::unordered_set<std::string>> g_guidOwners;
+static std::unordered_map<std::string, Blip> g_registeredIcons;
+static bool g_targetTracking = false;
+static uint64_t g_currentTargetGUID = 0;
+static Blip g_targetHostileBlip = {nullptr, 1.0F};
 static std::unordered_map<uint32_t, Blip> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
 static std::vector<TrackedObjectData> g_trackedObjectsData;
@@ -113,14 +112,49 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
         {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), blip});
 }
 
+// Heuristic: NPCs with service flags (vendors, trainers, etc.) are friendly.
+// For everything else, compare faction templates — covers hostile mobs and enemy players.
+static bool IsTargetHostile(const Game::CGUnit_C *unitptr) {
+    const auto *unitData = unitptr->m_data;
+    if (unitData == nullptr)
+        return false;
+
+    if (unitData->m_npcFlags != 0)
+        return false;
+
+    const uint64_t playerGUID = Game::GetGUIDFromName("player");
+    if (playerGUID == 0)
+        return false;
+
+    const auto *playerPtr = reinterpret_cast<const Game::CGUnit_C *>(
+        Game::ClntObjMgrObjectPtr(
+            Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr,
+            playerGUID, 0));
+    if (playerPtr == nullptr || playerPtr->m_data == nullptr)
+        return false;
+
+    return unitData->m_factionTemplate != playerPtr->m_data->m_factionTemplate;
+}
+
+static bool IsAnyTrackingActive() {
+    return g_targetTracking || !g_trackedUnitFlagsBlips.empty() ||
+           !g_trackedGameObjectTypesBlips.empty();
+}
+
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
-    const auto unitIt = g_trackedUnitBlips.find(guid);
-    if (unitIt != g_trackedUnitBlips.end()) {
-        Game::CGObject_C *unitptr =
-            Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0);
-        if (unitptr != nullptr) {
-            TrackObject(info, unitptr, guid, unitIt->second);
-            return true;
+    if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID) {
+        const auto iconIt = g_registeredIcons.find("target");
+        if (iconIt != g_registeredIcons.end()) {
+            auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
+                Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
+            if (unitptr != nullptr) {
+                Blip blip = iconIt->second;
+                if (g_targetHostileBlip.texture != nullptr && IsTargetHostile(unitptr)) {
+                    blip = g_targetHostileBlip;
+                }
+                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip);
+                return true;
+            }
         }
         return false;
     }
@@ -184,7 +218,7 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
 }
 
 static bool IsUnitTracked(uint64_t guid) {
-    return g_trackedUnitBlips.find(guid) != g_trackedUnitBlips.end();
+    return g_targetTracking && guid != 0 && guid == g_currentTargetGUID;
 }
 
 static void UpdateCustomHover(Game::C2Vector mouse, Game::C2Vector offset) {
@@ -245,6 +279,9 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
                                void *context) {
     if (reinterpret_cast<uintptr_t>(callback) == Offsets::FUN_OBJECT_ENUM_PROC) {
         g_trackedObjectsData.clear();
+        if (g_targetTracking) {
+            g_currentTargetGUID = Game::GetGUIDFromName("target");
+        }
     }
     return ClntObjMgrEnumVisibleObjects_o(callback, context);
 }
@@ -391,121 +428,22 @@ static Game::HTEXTURE__ *LoadTextureCached(const std::string &texturePathLower) 
     return texture;
 }
 
-static int __fastcall Script_SetUnitBlip(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: SetUnitBlip(unit [, texture [, scale [, ownerID]]])");
-        return 0;
-    }
-
-    const auto *unitToken = Game::Lua::ToString(L, 1);
-    const uint64_t unitGUID = Game::GetGUIDFromName(unitToken);
-
-    if (unitGUID == 0) {
-        Game::Lua::Error(L, "Unit not found.");
-        return 0;
-    }
-
-    if (!Game::Lua::IsString(L, 2)) {
-        g_trackedUnitBlips.erase(unitGUID);
-        return 0;
-    }
-
-    auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
-        Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, unitGUID, 0));
-
-    if (unitptr == nullptr) {
-        Game::Lua::Error(L, "Unit not found.");
-        return 0;
-    }
-
-    std::string texturePath = Game::Lua::ToString(L, 2);
-    std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
-
-    Game::HTEXTURE__ *texture = LoadTextureCached(texturePath);
-    if (!texture) {
-        Game::Lua::Error(L, "Couldn't load texture.");
-        return 0;
-    }
-
-    InstallHooks();
-    float scale = 1.0F;
-
-    if (Game::Lua::IsNumber(L, 3)) {
-        scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
-    }
-
-    g_trackedUnitBlips[unitGUID] = {texture, scale};
-
-    std::string tokenKey = unitToken;
-    std::transform(tokenKey.begin(), tokenKey.end(), tokenKey.begin(), ::tolower);
-    g_unitTokenGuids[tokenKey].insert(unitGUID);
-
-    if (Game::Lua::IsString(L, 4)) {
-        std::string ownerKey = Game::Lua::ToString(L, 4);
-        std::transform(ownerKey.begin(), ownerKey.end(), ownerKey.begin(), ::tolower);
-        g_ownerGuids[ownerKey].insert(unitGUID);
-        g_guidOwners[unitGUID].insert(ownerKey);
-    }
-
-    return 0;
-}
-
-static int __fastcall Script_ClearUnitBlipsByOwner(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: ClearUnitBlipsByOwner(ownerID)");
-        return 0;
-    }
-
-    std::string ownerKey = Game::Lua::ToString(L, 1);
-    std::transform(ownerKey.begin(), ownerKey.end(), ownerKey.begin(), ::tolower);
-
-    const auto it = g_ownerGuids.find(ownerKey);
-    if (it != g_ownerGuids.end()) {
-        for (uint64_t guid : it->second) {
-            auto &owners = g_guidOwners[guid];
-            owners.erase(ownerKey);
-            if (owners.empty()) {
-                g_trackedUnitBlips.erase(guid);
-                g_guidOwners.erase(guid);
-            }
-        }
-        g_ownerGuids.erase(it);
-    }
-
-    return 0;
-}
-
-static int __fastcall Script_SetObjectTypeBlip(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: SetObjectTypeBlip(type [, texture [, scale]])");
+static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
+    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterIcon(trackingType, icon [, scale])");
         return 0;
     }
 
     std::string typeName = Game::Lua::ToString(L, 1);
     std::transform(typeName.begin(), typeName.end(), typeName.begin(), ::tolower);
 
-    if (!Game::Lua::IsString(L, 2)) {
-        const auto itFlag = g_stringToFlag.find(typeName);
-        if (itFlag != g_stringToFlag.end()) {
-            g_trackedUnitFlagsBlips.erase(itFlag->second);
-            return 0;
-        }
-
-        const auto itType = g_stringToGameObjectType.find(typeName);
-        if (itType != g_stringToGameObjectType.end()) {
-            g_trackedGameObjectTypesBlips.erase(itType->second);
-            return 0;
-        }
-
-        Game::Lua::Error(L, "Unknown object type. Supported types: Auctioneer, Banker, "
-                            "Battlemaster, Brainwashing, Flight Master, Innkeeper, Mailbox, "
-                            "Repair, Stable Master, Summoning Ritual Object, Summoning Ritual "
-                            "Unit, Trainer, Vendor.");
-        return 0;
-    }
-
     std::string texturePath = Game::Lua::ToString(L, 2);
     std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
+
+    float scale = 1.0F;
+    if (Game::Lua::IsNumber(L, 3)) {
+        scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
+    }
 
     Game::HTEXTURE__ *texture = LoadTextureCached(texturePath);
     if (!texture) {
@@ -513,82 +451,131 @@ static int __fastcall Script_SetObjectTypeBlip(void *L) {
         return 0;
     }
 
-    float scale = 1.0F;
-    if (Game::Lua::IsNumber(L, 3)) {
-        scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
+    g_registeredIcons[typeName] = {texture, scale};
+    return 0;
+}
+
+static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterHostileIcon(icon [, scale])");
+        return 0;
     }
 
-    Blip blip = {texture, scale};
+    std::string texturePath = Game::Lua::ToString(L, 1);
+    std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
+
+    float scale = 1.0F;
+    if (Game::Lua::IsNumber(L, 2)) {
+        scale = static_cast<float>(Game::Lua::ToNumber(L, 2));
+    }
+
+    Game::HTEXTURE__ *texture = LoadTextureCached(texturePath);
+    if (!texture) {
+        Game::Lua::Error(L, "Couldn't load texture.");
+        return 0;
+    }
+
+    g_targetHostileBlip = {texture, scale};
+    return 0;
+}
+
+static int __fastcall Script_MinimapBlip_Track(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_Track(trackingType [, enabled])");
+        return 0;
+    }
+
+    std::string typeName = Game::Lua::ToString(L, 1);
+    std::transform(typeName.begin(), typeName.end(), typeName.begin(), ::tolower);
+
+    bool enabled = true;
+    if (Game::Lua::IsNumber(L, 2)) {
+        enabled = (Game::Lua::ToNumber(L, 2) != 0.0);
+    }
+
+    if (typeName == "target") {
+        if (enabled) {
+            if (g_registeredIcons.find("target") == g_registeredIcons.end()) {
+                Game::Lua::Error(
+                    L, "No icon registered for target. Call MinimapBlip_RegisterIcon first.");
+                return 0;
+            }
+            g_targetTracking = true;
+            InstallHooks();
+        } else {
+            g_targetTracking = false;
+            if (!IsAnyTrackingActive())
+                UninstallHooks();
+        }
+        return 0;
+    }
 
     const auto itFlag = g_stringToFlag.find(typeName);
     if (itFlag != g_stringToFlag.end()) {
-        InstallHooks();
-        g_trackedUnitFlagsBlips[itFlag->second] = blip;
+        if (enabled) {
+            const auto iconIt = g_registeredIcons.find(typeName);
+            if (iconIt == g_registeredIcons.end()) {
+                Game::Lua::Error(
+                    L,
+                    "No icon registered for this type. Call MinimapBlip_RegisterIcon first.");
+                return 0;
+            }
+            InstallHooks();
+            g_trackedUnitFlagsBlips[itFlag->second] = iconIt->second;
+        } else {
+            g_trackedUnitFlagsBlips.erase(itFlag->second);
+            if (!IsAnyTrackingActive())
+                UninstallHooks();
+        }
         return 0;
     }
 
     const auto itType = g_stringToGameObjectType.find(typeName);
     if (itType != g_stringToGameObjectType.end()) {
-        InstallHooks();
-        g_trackedGameObjectTypesBlips[itType->second] = blip;
-        return 0;
-    }
-
-    Game::Lua::Error(L, "Unknown object type. Supported types: Auctioneer, Banker, Battlemaster, "
-                        "Brainwashing, Flight Master, Innkeeper, Mailbox, Repair, Stable Master, "
-                        "Summoning Ritual Object, Summoning Ritual Unit, Trainer, Vendor.");
-    return 0;
-}
-
-static int __fastcall Script_ClearUnitBlips(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        g_trackedUnitBlips.clear();
-        g_unitTokenGuids.clear();
-        g_ownerGuids.clear();
-        g_guidOwners.clear();
-        return 0;
-    }
-
-    std::string tokenKey = Game::Lua::ToString(L, 1);
-    std::transform(tokenKey.begin(), tokenKey.end(), tokenKey.begin(), ::tolower);
-
-    const auto it = g_unitTokenGuids.find(tokenKey);
-    if (it != g_unitTokenGuids.end()) {
-        for (uint64_t guid : it->second) {
-            g_trackedUnitBlips.erase(guid);
-            const auto ownersIt = g_guidOwners.find(guid);
-            if (ownersIt != g_guidOwners.end()) {
-                for (const auto &ownerKey : ownersIt->second) {
-                    g_ownerGuids[ownerKey].erase(guid);
-                }
-                g_guidOwners.erase(ownersIt);
+        if (enabled) {
+            const auto iconIt = g_registeredIcons.find(typeName);
+            if (iconIt == g_registeredIcons.end()) {
+                Game::Lua::Error(
+                    L,
+                    "No icon registered for this type. Call MinimapBlip_RegisterIcon first.");
+                return 0;
             }
+            InstallHooks();
+            g_trackedGameObjectTypesBlips[itType->second] = iconIt->second;
+        } else {
+            g_trackedGameObjectTypesBlips.erase(itType->second);
+            if (!IsAnyTrackingActive())
+                UninstallHooks();
         }
-        g_unitTokenGuids.erase(it);
+        return 0;
     }
 
+    Game::Lua::Error(L, "Unknown tracking type. Supported types: target, Auctioneer, Banker, "
+                        "Battlemaster, Brainwashing, Flight Master, Innkeeper, Mailbox, Repair, "
+                        "Stable Master, Summoning Ritual Object, Summoning Ritual Unit, Trainer, "
+                        "Vendor.");
     return 0;
 }
 
 void RegisterLuaFunctions() {
-    Game::FrameScript_RegisterFunction("SetUnitBlip",
-                                       reinterpret_cast<uintptr_t>(&Script_SetUnitBlip));
-    Game::FrameScript_RegisterFunction("SetObjectTypeBlip",
-                                       reinterpret_cast<uintptr_t>(&Script_SetObjectTypeBlip));
-    Game::FrameScript_RegisterFunction("ClearUnitBlips",
-                                       reinterpret_cast<uintptr_t>(&Script_ClearUnitBlips));
-    Game::FrameScript_RegisterFunction("ClearUnitBlipsByOwner",
-                                       reinterpret_cast<uintptr_t>(&Script_ClearUnitBlipsByOwner));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_RegisterIcon",
+        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterIcon));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_RegisterHostileIcon",
+        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterHostileIcon));
+    Game::FrameScript_RegisterFunction("MinimapBlip_Track",
+                                       reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
 }
 
 void Reset() {
-    g_trackedUnitBlips.clear();
-    g_unitTokenGuids.clear();
-    g_ownerGuids.clear();
-    g_guidOwners.clear();
+    g_registeredIcons.clear();
+    g_targetHostileBlip = {nullptr, 1.0F};
     g_trackedUnitFlagsBlips.clear();
     g_trackedGameObjectTypesBlips.clear();
     g_trackedObjectsData.clear();
+    g_targetTracking = false;
+    g_currentTargetGUID = 0;
     g_blipHoverState = BlipHoverState();
     UninstallHooks();
 }
