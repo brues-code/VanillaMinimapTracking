@@ -81,6 +81,9 @@ static const std::unordered_map<std::string, uint32_t> g_stringToFlag = {
     {"stable master", Game::UNIT_NPC_FLAG_STABLEMASTER},
     {"summoning ritual unit", Game::UNIT_NPC_FLAG_SUMMONING_RITUAL},
     {"trainer", Game::UNIT_NPC_FLAG_TRAINER},
+    {"transmog", Game::UNIT_NPC_FLAG_TRANSMOG},
+    {"item restore", Game::UNIT_NPC_FLAG_ITEMRESTORE},
+    {"outdoor pvp", Game::UNIT_NPC_FLAG_OUTDOORPVP},
     {"vendor", Game::UNIT_NPC_FLAG_VENDOR}};
 
 static const std::unordered_map<std::string, uint32_t> g_stringToGameObjectType = {
@@ -580,9 +583,9 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     }
 
     Game::Lua::Error(L, "Unknown tracking type. Supported types: target, Auctioneer, Banker, "
-                        "Battlemaster, Brainwashing, Flight Master, Innkeeper, Mailbox, Repair, "
-                        "Stable Master, Summoning Ritual Object, Summoning Ritual Unit, Trainer, "
-                        "Vendor.");
+                        "Battlemaster, Brainwashing, Flight Master, Innkeeper, Item Restore, "
+                        "Mailbox, Outdoor PvP, Repair, Stable Master, Summoning Ritual Object, "
+                        "Summoning Ritual Unit, Trainer, Transmog, Vendor.");
     return 0;
 }
 

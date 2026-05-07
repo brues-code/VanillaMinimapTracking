@@ -16,11 +16,14 @@ local BLIP_TYPES = {
 	{ type = "Trainer",                 label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
 	{ type = "Stable Master",           label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
 	{ type = "Battlemaster",            label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Vendor",                  label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                scale = BLIP_SCALE },
-	{ type = "Mailbox",                 label = "Mailbox",             icon = Icon("Mailbox"),      scale = BLIP_SCALE_TRACKING },
-	-- { type = "Summoning Ritual Unit",   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",    scale = BLIP_SCALE },
-	-- { type = "Summoning Ritual Object", label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",    scale = BLIP_SCALE },
-	-- { type = "Brainwashing",            label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate", scale = BLIP_SCALE },
+	{ type = "Vendor",                  label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
+	{ type = "Mailbox",                 label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
+	-- { type = "Transmog",                label = "Transmog",            icon = Icon("Transmogrifier"),                  scale = BLIP_SCALE_TRACKING },
+	-- { type = "Item Restore",            label = "Item Restore",        icon = "Interface\\Icons\\INV_Misc_Bag_07",                    scale = BLIP_SCALE_TRACKING },
+	-- { type = "Outdoor PvP",             label = "Outdoor PvP",         icon = "Interface\\Icons\\Achievement_PVP_A_01",               scale = BLIP_SCALE_TRACKING },
+	-- { type = "Summoning Ritual Unit",   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = "Summoning Ritual Object", label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = "Brainwashing",            label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate",    scale = BLIP_SCALE },
 }
 
 local ROW_HEIGHT = 18

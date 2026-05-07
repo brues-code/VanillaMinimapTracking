@@ -90,6 +90,9 @@ enum NPC_FLAGS {
     UNIT_NPC_FLAG_STABLEMASTER = 0x00002000,
     UNIT_NPC_FLAG_REPAIR = 0x00004000,
     UNIT_NPC_FLAG_SUMMONING_RITUAL = 0x00008000,
+    UNIT_NPC_FLAG_TRANSMOG = 0x10000000,       // custom flag for fashionista npc
+    UNIT_NPC_FLAG_OUTDOORPVP = 0x20000000,       // custom flag for outdoor pvp creatures || Custom flag
+    UNIT_NPC_FLAG_ITEMRESTORE = 0x40000000,       // custom flag for vendor that restores deleted items
 };
 
 enum GAMEOBJECT_TYPES {
