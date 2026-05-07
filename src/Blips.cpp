@@ -596,6 +596,18 @@ static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
     return 0;
 }
 
+static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_SetFocusByName(name)");
+        return 0;
+    }
+    const std::string name = Game::Lua::ToString(L, 1);
+    const uint64_t guid = Game::GetGUIDFromName(name.c_str());
+    if (guid != 0)
+        g_focusGUID = guid;
+    return 0;
+}
+
 static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
     g_focusGUID = 0;
     return 0;
@@ -613,6 +625,9 @@ void RegisterLuaFunctions() {
                                        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_SetFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocus));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_SetFocusByName",
+        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocusByName));
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_ClearFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_ClearFocus));
 }
