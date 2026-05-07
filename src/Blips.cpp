@@ -63,6 +63,8 @@ static std::unordered_map<std::string, Game::HTEXTURE__ *> g_textureCache;
 static std::unordered_map<std::string, Blip> g_registeredIcons;
 static bool g_targetTracking = false;
 static uint64_t g_currentTargetGUID = 0;
+static bool g_focusTracking = false;
+static uint64_t g_focusGUID = 0;
 static Blip g_targetHostileBlip = {nullptr, 1.0F};
 static std::unordered_map<uint32_t, Blip> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
@@ -127,13 +129,30 @@ static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
 }
 
 static bool IsAnyTrackingActive() {
-    return g_targetTracking || !g_trackedUnitFlagsBlips.empty() ||
+    return g_targetTracking || g_focusTracking || !g_trackedUnitFlagsBlips.empty() ||
            !g_trackedGameObjectTypesBlips.empty();
 }
 
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
     if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID) {
         const auto iconIt = g_registeredIcons.find("target");
+        if (iconIt != g_registeredIcons.end()) {
+            auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
+                Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
+            if (unitptr != nullptr) {
+                Blip blip = iconIt->second;
+                if (g_targetHostileBlip.texture != nullptr && IsTargetHostile(unitptr)) {
+                    blip = g_targetHostileBlip;
+                }
+                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (g_focusTracking && g_focusGUID != 0 && guid == g_focusGUID) {
+        const auto iconIt = g_registeredIcons.find("focus");
         if (iconIt != g_registeredIcons.end()) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
@@ -208,7 +227,13 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
 }
 
 static bool IsUnitTracked(uint64_t guid) {
-    return g_targetTracking && guid != 0 && guid == g_currentTargetGUID;
+    if (guid == 0)
+        return false;
+    if (g_targetTracking && guid == g_currentTargetGUID)
+        return true;
+    if (g_focusTracking && guid == g_focusGUID)
+        return true;
+    return false;
 }
 
 static void UpdateCustomHover(Game::C2Vector mouse, Game::C2Vector offset) {
@@ -500,6 +525,23 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
 
+    if (typeName == "focus") {
+        if (enabled) {
+            if (g_registeredIcons.find("focus") == g_registeredIcons.end()) {
+                Game::Lua::Error(
+                    L, "No icon registered for focus. Call MinimapBlip_RegisterIcon first.");
+                return 0;
+            }
+            g_focusTracking = true;
+            InstallHooks();
+        } else {
+            g_focusTracking = false;
+            if (!IsAnyTrackingActive())
+                UninstallHooks();
+        }
+        return 0;
+    }
+
     const auto itFlag = g_stringToFlag.find(typeName);
     if (itFlag != g_stringToFlag.end()) {
         if (enabled) {
@@ -552,6 +594,21 @@ static int __fastcall Script_MinimapBlip_IsLoaded(void *L) {
     return 1;
 }
 
+static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
+    const uint64_t guid = Game::GetGUIDFromName("target");
+    if (guid == 0) {
+        Game::Lua::Error(L, "No target to set as focus.");
+        return 0;
+    }
+    g_focusGUID = guid;
+    return 0;
+}
+
+static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
+    g_focusGUID = 0;
+    return 0;
+}
+
 void RegisterLuaFunctions() {
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_RegisterIcon",
@@ -563,6 +620,10 @@ void RegisterLuaFunctions() {
         "MinimapBlip_IsLoaded", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_IsLoaded));
     Game::FrameScript_RegisterFunction("MinimapBlip_Track",
                                        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_SetFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocus));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_ClearFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_ClearFocus));
 }
 
 void Reset() {
@@ -573,6 +634,8 @@ void Reset() {
     g_trackedObjectsData.clear();
     g_targetTracking = false;
     g_currentTargetGUID = 0;
+    g_focusTracking = false;
+    g_focusGUID = 0;
     g_blipHoverState = BlipHoverState();
     UninstallHooks();
 }
