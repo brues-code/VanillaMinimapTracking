@@ -112,28 +112,18 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
         {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), blip});
 }
 
-// Heuristic: NPCs with service flags (vendors, trainers, etc.) are friendly.
-// For everything else, compare faction templates — covers hostile mobs and enemy players.
-static bool IsTargetHostile(const Game::CGUnit_C *unitptr) {
-    const auto *unitData = unitptr->m_data;
-    if (unitData == nullptr)
-        return false;
-
-    if (unitData->m_npcFlags != 0)
-        return false;
-
+static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
     const uint64_t playerGUID = Game::GetGUIDFromName("player");
     if (playerGUID == 0)
         return false;
 
-    const auto *playerPtr = reinterpret_cast<const Game::CGUnit_C *>(
-        Game::ClntObjMgrObjectPtr(
-            Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr,
-            playerGUID, 0));
-    if (playerPtr == nullptr || playerPtr->m_data == nullptr)
+    auto *playerPtr = reinterpret_cast<Game::CGUnit_C *>(Game::ClntObjMgrObjectPtr(
+        Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr,
+        playerGUID, 0));
+    if (playerPtr == nullptr)
         return false;
 
-    return unitData->m_factionTemplate != playerPtr->m_data->m_factionTemplate;
+    return !Game::CGUnit_C_CanAssist(playerPtr, unitptr);
 }
 
 static bool IsAnyTrackingActive() {

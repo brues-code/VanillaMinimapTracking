@@ -434,6 +434,7 @@ using CWorld_QueryMapObjIDs_t = bool(__fastcall *)(CWorld *thisptr, uint32_t *ou
 using FrameScript_Initialize_t = bool(__fastcall *)();
 using FrameScript_Execute_t = bool(__fastcall *)(const char *script, const char *scriptName);
 using CGGameUI_Shutdown_t = void(__fastcall *)();
+using CGUnit_C_CanAssist_t = bool(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
 
 extern const FrameScript_RegisterFunction_t FrameScript_RegisterFunction;
 extern const GetGUIDFromName_t GetGUIDFromName;
@@ -449,6 +450,7 @@ extern const SStrPack_t SStrPack;
 extern const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs;
 extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
 extern const FrameScript_Execute_t FrameScript_Execute;
+extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
 
 void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float scale, bool gray);
 
