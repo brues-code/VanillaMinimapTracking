@@ -589,11 +589,6 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     return 0;
 }
 
-static int __fastcall Script_MinimapBlip_IsLoaded(void *L) {
-    Game::Lua::PushString(L, "1.0.0");
-    return 1;
-}
-
 static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
     const uint64_t guid = Game::GetGUIDFromName("target");
     if (guid == 0) {
@@ -616,8 +611,7 @@ void RegisterLuaFunctions() {
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_RegisterHostileIcon",
         reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterHostileIcon));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_IsLoaded", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_IsLoaded));
+    Game::FrameScript_Execute("MINIMAP_BLIP_VERSION = \"1.0.0\"", "VanillaMinimapTracking");
     Game::FrameScript_RegisterFunction("MinimapBlip_Track",
                                        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
     Game::FrameScript_RegisterFunction(
