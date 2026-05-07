@@ -547,6 +547,11 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     return 0;
 }
 
+static int __fastcall Script_MinimapBlip_IsLoaded(void *L) {
+    Game::Lua::PushString(L, "1.0.0");
+    return 1;
+}
+
 void RegisterLuaFunctions() {
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_RegisterIcon",
@@ -554,6 +559,8 @@ void RegisterLuaFunctions() {
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_RegisterHostileIcon",
         reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterHostileIcon));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_IsLoaded", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_IsLoaded));
     Game::FrameScript_RegisterFunction("MinimapBlip_Track",
                                        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
 }
