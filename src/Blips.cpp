@@ -157,11 +157,8 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
-                Blip blip = iconIt->second;
-                if (g_targetHostileBlip.texture != nullptr && IsTargetHostile(unitptr)) {
-                    blip = g_targetHostileBlip;
-                }
-                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip);
+                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
+                            iconIt->second);
                 return true;
             }
         }

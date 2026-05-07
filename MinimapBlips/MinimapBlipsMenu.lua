@@ -7,7 +7,7 @@ local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. n
 
 local BLIP_TYPES = {
 	{ type = "Target",                  label = "Target",              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Focus",                   label = "Focus",               icon = Icon("Focus"),        hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
+	{ type = "Focus",                   label = "Focus",               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
 	{ type = "Auctioneer",              label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
 	{ type = "Banker",                  label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
 	{ type = "Flight Master",           label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
