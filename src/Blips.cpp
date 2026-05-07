@@ -42,12 +42,14 @@ struct TrackedObjectData {
     Game::C2Vector minimapPos;
     bool isInDifferentArea;
     std::string name;
+    std::string subName;
     Blip blip;
 };
 
 struct BlipHoverEntry {
     uint64_t guid;
     std::string name;
+    std::string subName;
     bool gray;
 };
 
@@ -113,8 +115,20 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
     Game::WorldPosToMinimapFrameCoords(&minimapPos, nullptr, info->currentPos, info->radius,
                                        unitPos.x, unitPos.y, info->layoutScale, unkScale);
 
+    std::string subName;
+    if (objectptr->m_objectType == Game::OBJECT_TYPE::UNIT) {
+        const auto *cacheRow = *reinterpret_cast<const char *const *>(
+            reinterpret_cast<const uint8_t *>(objectptr) + 0xB30);
+        if (cacheRow != nullptr) {
+            const char *raw = *reinterpret_cast<const char *const *>(cacheRow + 0x10);
+            if (raw != nullptr && raw[0] != '\0')
+                subName = raw;
+        }
+    }
+
     g_trackedObjectsData.push_back(
-        {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), blip});
+        {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), subName,
+         blip});
 }
 
 static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
@@ -246,7 +260,7 @@ static void UpdateCustomHover(Game::C2Vector mouse, Game::C2Vector offset) {
         const float py = objData.minimapPos.y + offset.y;
 
         if (fabsf(mouse.x - px) <= half && fabsf(mouse.y - py) <= half) {
-            now.push_back({objData.guid, objData.name, objData.isInDifferentArea});
+            now.push_back({objData.guid, objData.name, objData.subName, objData.isInDifferentArea});
         }
     }
 
@@ -262,6 +276,7 @@ static void UpdateCustomHover(Game::C2Vector mouse, Game::C2Vector offset) {
         mix(hit.guid);
         mix(hit.gray ? 1ULL : 0ULL);
         mix(std::hash<std::string_view>{}(hit.name));
+        mix(std::hash<std::string_view>{}(hit.subName));
     }
 
     g_blipHoverState.nonEmpty = !now.empty();
@@ -281,9 +296,19 @@ static void WriteToMinimapTooltip(char *tooltipText) {
         if (hit.gray) {
             Game::SStrPack(tooltipText, "|cffb0b0b0", 0x400);
             Game::SStrPack(tooltipText, hit.name.c_str(), 0x400);
+            if (!hit.subName.empty()) {
+                Game::SStrPack(tooltipText, "\n<", 0x400);
+                Game::SStrPack(tooltipText, hit.subName.c_str(), 0x400);
+                Game::SStrPack(tooltipText, ">", 0x400);
+            }
             Game::SStrPack(tooltipText, "|r\n", 0x400);
         } else {
             Game::SStrPack(tooltipText, hit.name.c_str(), 0x400);
+            if (!hit.subName.empty()) {
+                Game::SStrPack(tooltipText, "\n<", 0x400);
+                Game::SStrPack(tooltipText, hit.subName.c_str(), 0x400);
+                Game::SStrPack(tooltipText, ">", 0x400);
+            }
             Game::SStrPack(tooltipText, "\n", 0x400);
         }
     }
