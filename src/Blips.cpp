@@ -67,6 +67,7 @@ static bool g_targetTracking = false;
 static uint64_t g_currentTargetGUID = 0;
 static bool g_focusTracking = false;
 static uint64_t g_focusGUID = 0;
+static uint64_t g_playerGUID = 0;
 static Blip g_targetHostileBlip = {nullptr, 1.0F};
 static std::unordered_map<uint32_t, Blip> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
@@ -151,7 +152,8 @@ static bool IsAnyTrackingActive() {
 }
 
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
-    if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID) {
+    if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID &&
+        guid != g_playerGUID) {
         const auto iconIt = g_registeredIcons.find("target");
         if (iconIt != g_registeredIcons.end()) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
@@ -168,7 +170,7 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
         return false;
     }
 
-    if (g_focusTracking && g_focusGUID != 0 && guid == g_focusGUID) {
+    if (g_focusTracking && g_focusGUID != 0 && guid == g_focusGUID && guid != g_playerGUID) {
         const auto iconIt = g_registeredIcons.find("focus");
         if (iconIt != g_registeredIcons.end()) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
@@ -329,6 +331,7 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
                                void *context) {
     if (reinterpret_cast<uintptr_t>(callback) == Offsets::FUN_OBJECT_ENUM_PROC) {
         g_trackedObjectsData.clear();
+        g_playerGUID = Game::GetGUIDFromName("player");
         if (g_targetTracking) {
             g_currentTargetGUID = Game::GetGUIDFromName("target");
         }
@@ -680,6 +683,7 @@ void Reset() {
     g_currentTargetGUID = 0;
     g_focusTracking = false;
     g_focusGUID = 0;
+    g_playerGUID = 0;
     g_blipHoverState = BlipHoverState();
     UninstallHooks();
 }
