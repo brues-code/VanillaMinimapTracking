@@ -260,7 +260,17 @@ static void UpdateCustomHover(Game::C2Vector mouse, Game::C2Vector offset) {
         const float py = objData.minimapPos.y + offset.y;
 
         if (fabsf(mouse.x - px) <= half && fabsf(mouse.y - py) <= half) {
-            now.push_back({objData.guid, objData.name, objData.subName, objData.isInDifferentArea});
+            bool dup = false;
+            for (const auto &existing : now) {
+                if (existing.name == objData.name && existing.subName == objData.subName) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (!dup) {
+                now.push_back(
+                    {objData.guid, objData.name, objData.subName, objData.isInDifferentArea});
+            }
         }
     }
 
