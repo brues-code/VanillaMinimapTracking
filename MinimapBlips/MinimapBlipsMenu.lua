@@ -24,7 +24,7 @@ local BLIP_TYPES = {
 }
 
 local ROW_HEIGHT = 18
-local ROW_WIDTH  = 175
+local ROW_WIDTH  = 140
 local PADDING    = 6
 
 local menu = CreateFrame("Frame", "MinimapBlipsMenu", UIParent)
