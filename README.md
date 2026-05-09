@@ -79,5 +79,3 @@ missing.
 The DLL hooks a handful of well-known WoW 1.12.1 functions to render extra
 blips (see [`src/Blips.cpp`](src/Blips.cpp)) and reads creature subnames
 directly out of the in-memory creature cache (`unit + 0xB30 → cache + 0x10`).
-Detailed offset and architecture notes for future hacking live in
-agent-targeted memory under `~/.claude/projects/.../memory/`.
