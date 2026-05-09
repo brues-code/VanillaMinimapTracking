@@ -19,6 +19,7 @@
 #include "event/Custom.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -47,6 +48,7 @@ struct TrackedObjectData {
     bool isInDifferentArea;
     std::string name;
     std::string subName;
+    std::string typeName; // matches kBlipTypes[i].typeName (e.g. "vendor", "target")
     Blip blip;
 };
 
@@ -123,8 +125,16 @@ static const BlipTypeDef *FindBlipType(const std::string &typeName) {
     return nullptr;
 }
 
+static const char *FindBlipTypeNameByEngine(BlipKind kind, uint32_t engineValue) {
+    for (const auto &d : kBlipTypes) {
+        if (d.kind == kind && d.engineValue == engineValue)
+            return d.typeName;
+    }
+    return nullptr;
+}
+
 static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, uint64_t guid,
-                        Blip blip) {
+                        Blip blip, const char *typeName) {
     Game::C2Vector minimapPos;
     Game::C3Vector unitPos;
 
@@ -157,7 +167,7 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
 
     g_trackedObjectsData.push_back(
         {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), subName,
-         blip});
+         typeName ? typeName : "", blip});
 }
 
 static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
@@ -191,7 +201,8 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 if (g_targetHostileBlip.texture != nullptr && IsTargetHostile(unitptr)) {
                     blip = g_targetHostileBlip;
                 }
-                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip);
+                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip,
+                            "target");
                 return true;
             }
         }
@@ -205,7 +216,7 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
                 TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
-                            iconIt->second);
+                            iconIt->second, "focus");
                 return true;
             }
         }
@@ -241,14 +252,16 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
             }
         }
         if (matchedFlag != 0) {
-            TrackObject(info, objptr, guid, blip);
+            TrackObject(info, objptr, guid, blip,
+                        FindBlipTypeNameByEngine(BlipKind::NpcFlag, matchedFlag));
             return true;
         }
     } else if (objptr->m_objectType == Game::OBJECT_TYPE::GAMEOBJECT) {
         const auto *gameObjectData = reinterpret_cast<Game::CGGameObjectData *>(objptr->m_data);
         const auto it = g_trackedGameObjectTypesBlips.find(gameObjectData->m_type);
         if (it != g_trackedGameObjectTypesBlips.end()) {
-            TrackObject(info, objptr, guid, it->second);
+            TrackObject(info, objptr, guid, it->second,
+                        FindBlipTypeNameByEngine(BlipKind::GameObject, gameObjectData->m_type));
             return true;
         }
     }
@@ -801,6 +814,34 @@ static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
     return 1;
 }
 
+// Returns a Lua array of GUID hex strings for every tracked object currently
+// rendered on the minimap. Optional first arg filters by type (e.g.
+// `C_MinimapBlip.ListVisibleGUIDs("vendor")`).
+static int __fastcall Script_MinimapBlip_ListVisibleGUIDs(void *L) {
+    std::string filter;
+    bool hasFilter = false;
+    if (Game::Lua::IsString(L, 1)) {
+        filter = Game::Lua::ToString(L, 1);
+        hasFilter = true;
+    }
+
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+
+    int idx = 1;
+    char buf[24];
+    for (const auto &obj : g_trackedObjectsData) {
+        if (hasFilter && obj.typeName != filter)
+            continue;
+        snprintf(buf, sizeof(buf), "0x%016llX", static_cast<unsigned long long>(obj.guid));
+        Game::Lua::PushNumber(L, static_cast<double>(idx));
+        Game::Lua::PushString(L, buf);
+        Game::Lua::SetTable(L, -3);
+        idx++;
+    }
+    return 1;
+}
+
 // Returns a Lua set keyed by lowercase type name (`{ target = 1, vendor = 1 }`).
 // Lets callers do a direct `tracked[name]` lookup without building their own
 // set from a list.
@@ -915,6 +956,8 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(NS, "Toggle", &Script_MinimapBlip_Toggle);
     Game::Lua::RegisterTableFunction(NS, "IsTracked", &Script_MinimapBlip_IsTracked);
     Game::Lua::RegisterTableFunction(NS, "GetTracked", &Script_MinimapBlip_GetTracked);
+    Game::Lua::RegisterTableFunction(NS, "ListVisibleGUIDs",
+                                     &Script_MinimapBlip_ListVisibleGUIDs);
     Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);
     Game::Lua::RegisterTableFunction(NS, "SetFocusByName", &Script_MinimapBlip_SetFocusByName);
     Game::Lua::RegisterTableFunction(NS, "ClearFocus", &Script_MinimapBlip_ClearFocus);

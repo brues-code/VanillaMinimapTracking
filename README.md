@@ -89,6 +89,7 @@ work too if you'd rather skip the enum.
 | `C_MinimapBlip.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
 | `C_MinimapBlip.IsTracked(type)`                                        | `1` or `nil`        | `if C_MinimapBlip.IsTracked(t) then ... end`.                               |
 | `C_MinimapBlip.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
+| `C_MinimapBlip.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
 | `C_MinimapBlip.SetFocus()`                                             | —                   | Captures the current target as the focus unit.                              |
 | `C_MinimapBlip.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
 | `C_MinimapBlip.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
