@@ -46,19 +46,10 @@ local function MinimapBlips_OnAddonLoaded()
 	MinimapBlipsMenu_RegisterIcons()
 end
 
-local function MinimapBlips_OnPlayerLogin()
-	if not C_MinimapBlip then return end
-	-- Querying IsTracked is what triggers the DLL's lazy config load on the
-	-- first call after login; we just need the menu's current state synced.
-	if MinimapBlipsMenu_RefreshAll then MinimapBlipsMenu_RefreshAll() end
-end
-
 eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:RegisterEvent("PLAYER_LOGIN")
 eventFrame:SetScript("OnEvent", function()
 	if event == "ADDON_LOADED" and arg1 == "MinimapBlips" then
 		MinimapBlips_OnAddonLoaded()
-	elseif event == "PLAYER_LOGIN" then
-		MinimapBlips_OnPlayerLogin()
+		eventFrame:UnregisterEvent("ADDON_LOADED")
 	end
 end)

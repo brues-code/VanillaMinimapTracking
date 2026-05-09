@@ -517,6 +517,10 @@ static Game::HTEXTURE__ *LoadTextureCached(const std::string &texturePathLower) 
     return texture;
 }
 
+static bool EnsureConfigLoaded(); // defined below; forward-declared so the
+                                  // public Script_* entry points can call it
+static void SyncRuntimeFromIntent();
+
 static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
         Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterIcon(trackingType, icon [, scale])");
@@ -540,6 +544,13 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     }
 
     g_registeredIcons[typeName] = {texture, scale};
+
+    // Pull saved intent from disk (if not already), then bring this type's
+    // runtime state up if the addon previously had it tracked. Order matters:
+    // the icon must be in g_registeredIcons before SyncRuntimeFromIntent so
+    // ApplyTrack can find it.
+    EnsureConfigLoaded();
+    SyncRuntimeFromIntent();
     return 0;
 }
 
@@ -611,6 +622,12 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
         }
         Game::Lua::SetTop(L, -2); // pop value, keep key for next iteration
     }
+
+    // Now that every icon in this batch is in g_registeredIcons, load the
+    // saved intent (if not yet) and bring up runtime state for any tracked
+    // types whose icons were just supplied.
+    EnsureConfigLoaded();
+    SyncRuntimeFromIntent();
     return 0;
 }
 
@@ -732,9 +749,6 @@ static void FireTrackingChanged(const std::string &typeName, bool enabled) {
     const int eventID = Event::Custom::Register(kTrackingChangedEvent);
     Event::Custom::Fire_SD(eventID, typeName.c_str(), enabled ? 1 : 0);
 }
-
-static bool EnsureConfigLoaded(); // defined below; forward-declared so the
-                                  // public Script_* entry points can call it
 static const char *ReadActiveAccountName();
 static const char *ReadActiveRealmName();
 static const char *ReadActiveCharacterName();
@@ -873,6 +887,10 @@ static const char *ReadActiveRealmName() {
     return *reinterpret_cast<const char *const *>(info + Offsets::OFF_REALM_INFO_NAME);
 }
 
+// Reads the config file into `g_enabledTypes` (intent only). Doesn't touch
+// runtime state — that's `SyncRuntimeFromIntent`'s job once icons are
+// available. Splitting these two concerns means a config entry for a type
+// whose icon hasn't been registered yet is preserved instead of dropped.
 static void LoadConfigFromFile() {
     if (g_configPath.empty())
         return;
@@ -888,7 +906,20 @@ static void LoadConfigFromFile() {
         if (line.empty() || line[0] == '#')
             continue;
         std::transform(line.begin(), line.end(), line.begin(), ::tolower);
-        ApplyTrack(line, true);
+        if (FindBlipType(line) != nullptr)
+            g_enabledTypes.insert(line);
+    }
+}
+
+// Activates runtime tracking for every type in `g_enabledTypes` whose icon
+// is registered. ApplyTrack returns NoChange for types already up and
+// IconMissing (silently) for types still waiting on a texture, so this is
+// safe to call repeatedly — e.g. after every RegisterIcon[s] batch.
+static void SyncRuntimeFromIntent() {
+    // ApplyTrack mutates g_enabledTypes, so iterate a snapshot.
+    std::vector<std::string> snapshot(g_enabledTypes.begin(), g_enabledTypes.end());
+    for (const auto &name : snapshot) {
+        ApplyTrack(name, true);
     }
 }
 
@@ -913,7 +944,7 @@ static bool EnsureConfigLoaded() {
         return false;
 
     g_configPath = std::string("WTF\\Account\\") + account + "\\" + realm + "\\" + player +
-                   "\\VanillaMinimapTracking.cfg";
+                   "\\VanillaMinimapTracking.txt";
     LoadConfigFromFile();
     g_configLoaded = true;
     return true;

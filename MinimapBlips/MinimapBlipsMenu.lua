@@ -41,67 +41,64 @@ menu:SetBackdropColor(0.09, 0.09, 0.09, 0.9)
 menu:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 menu:Hide()
 
-local rows = {}
-for i, entry in ipairs(BLIP_TYPES) do
-	local row = CreateFrame("Button", nil, menu)
-	row:SetWidth(ROW_WIDTH)
-	row:SetHeight(ROW_HEIGHT)
-	row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + (i - 1) * ROW_HEIGHT))
-	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+local function GenerateRows()
+	if menu.rows then return end
+	local tracked = C_MinimapBlip.GetTracked()
+	local rows = {}
+	for i, entry in ipairs(BLIP_TYPES) do
+		local row = CreateFrame("Button", nil, menu)
+		row:SetWidth(ROW_WIDTH)
+		row:SetHeight(ROW_HEIGHT)
+		row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + (i - 1) * ROW_HEIGHT))
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
-	local check = row:CreateTexture(nil, "ARTWORK")
-	check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-	check:SetWidth(14)
-	check:SetHeight(14)
-	check:SetPoint("LEFT", row, "LEFT", 0, 0)
+		local check = row:CreateTexture(nil, "ARTWORK")
+		check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+		check:SetWidth(14)
+		check:SetHeight(14)
+		check:SetPoint("LEFT", row, "LEFT", 0, 0)
+		if not tracked[entry.type] then
+			check:Hide()
+		end
 
-	local rowIcon = row:CreateTexture(nil, "ARTWORK")
-	rowIcon:SetTexture(entry.icon)
-	rowIcon:SetWidth(14)
-	rowIcon:SetHeight(14)
-	rowIcon:SetPoint("LEFT", row, "LEFT", 18, 0)
-	rowIcon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+		local rowIcon = row:CreateTexture(nil, "ARTWORK")
+		rowIcon:SetTexture(entry.icon)
+		rowIcon:SetWidth(14)
+		rowIcon:SetHeight(14)
+		rowIcon:SetPoint("LEFT", row, "LEFT", 18, 0)
+		rowIcon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
 
-	local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	label:SetPoint("LEFT", row, "LEFT", 36, 0)
-	label:SetText(entry.label)
+		local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		label:SetPoint("LEFT", row, "LEFT", 36, 0)
+		label:SetText(entry.label)
 
-	row.check    = check
-	row.blipType = entry.type
+		row.check    = check
+		row.blipType = entry.type
 
-	row:SetScript("OnClick", function()
-		C_MinimapBlip.Toggle(row.blipType)
-	end)
+		row:SetScript("OnClick", function()
+			C_MinimapBlip.Toggle(row.blipType)
+		end)
 
-	row:SetScript("OnEvent", function()
-		if event == "MINIMAP_BLIP_TRACKING_CHANGED" then
-			if this.blipType == arg1 then
-				if arg2 == 1 then
-					this.check:Show()
-				else
-					this.check:Hide()
+		row:SetScript("OnEvent", function()
+			if event == "MINIMAP_BLIP_TRACKING_CHANGED" then
+				if this.blipType == arg1 then
+					if arg2 == 1 then
+						this.check:Show()
+					else
+						this.check:Hide()
+					end
 				end
 			end
-		end
-	end)
-	row:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
+		end)
+		row:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
 
-	rows[i] = row
+		rows[i] = row
+	end
+	menu.rows = rows
 end
 
 function MinimapBlipsMenu_RegisterIcons()
 	C_MinimapBlip.RegisterIcons(BLIP_TYPES)
-end
-
-function MinimapBlipsMenu_RefreshAll()
-	local tracked = C_MinimapBlip.GetTracked()
-	for _, row in ipairs(rows) do
-		if tracked[row.blipType] then
-			row.check:Show()
-		else
-			row.check:Hide()
-		end
-	end
 end
 
 function MinimapBlipsMenu_Toggle(anchorButton)
@@ -109,6 +106,7 @@ function MinimapBlipsMenu_Toggle(anchorButton)
 		menu:Hide()
 		return
 	end
+	GenerateRows()
 	menu:ClearAllPoints()
 	menu:SetPoint("TOPRIGHT", anchorButton, "TOPLEFT", 0, -5)
 	menu:Show()
