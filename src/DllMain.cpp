@@ -16,29 +16,48 @@
 #include "Game.h"
 #include "MinHook.h"
 #include "Offsets.h"
-
-#include <string>
+#include "event/Custom.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
 static Game::LoadScriptFunctions_t LoadScriptFunctions_o = nullptr;
 static Game::CGGameUI_Shutdown_t CGGameUI_Shutdown_o = nullptr;
+static Game::FrameRegisterEvent_t FrameRegisterEvent_o = nullptr;
 
 static void __fastcall InvalidFunctionPtrCheck_h() {}
 
 static bool __fastcall FrameScript_Initialize_h() {
+    // Invalidate cached event-slot indices BEFORE the engine tears down its
+    // event table — the table is rebuilt at a fresh address afterwards.
+    Event::Custom::PrepareForReload();
+
     FrameScript_Initialize_o();
-    const std::string luaScript =
-        "VANILLAMINIMAPTRACKING_VERSION=" +
-        std::to_string(VANILLAMINIMAPTRACKING_VERSION_VALUE) +
-        "\nVANILLA_MINIMAP_TRACKING_VERSION=" +
-        std::to_string(VANILLAMINIMAPTRACKING_VERSION_VALUE);
-    Game::FrameScript_Execute(luaScript.c_str(), "VanillaMinimapTracking.lua");
+
+    // Set MINIMAP_BLIP_VERSION as a number directly via the Lua C API. No
+    // string-build + parse round-trip; addons checking `if MINIMAP_BLIP_VERSION
+    // then` see a truthy number.
+    if (void *L = Game::Lua::State()) {
+        Game::Lua::PushString(L, "MINIMAP_BLIP_VERSION");
+        Game::Lua::PushNumber(L, static_cast<double>(VANILLAMINIMAPTRACKING_VERSION_VALUE));
+        Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
+    }
     return true;
 }
 
 static void __fastcall LoadScriptFunctions_h() {
     LoadScriptFunctions_o();
     Blips::RegisterLuaFunctions();
+    // Now that the engine has finished its own boot-time RegisterEvent
+    // calls, it's safe for our writes to land in the event table.
+    Event::Custom::EnableWrites();
+}
+
+static void __fastcall FrameRegisterEvent_h(void *frame, void *edx, const char *eventName) {
+    // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim any
+    // custom event slots we couldn't grab at LoadScriptFunctions time —
+    // the engine's strcmp scan is about to run, so we need the slot named
+    // before it walks the table.
+    Event::Custom::RetryAll();
+    FrameRegisterEvent_o(frame, edx, eventName);
 }
 
 static void __fastcall CGGameUI_Shutdown_h() {
@@ -63,6 +82,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
                       FrameScript_Initialize_o);
         HOOK_FUNCTION(Offsets::FUN_LOAD_SCRIPT_FUNCTIONS, LoadScriptFunctions_h,
                       LoadScriptFunctions_o);
+        HOOK_FUNCTION(Offsets::FUN_FRAME_REGISTER_EVENT, FrameRegisterEvent_h,
+                      FrameRegisterEvent_o);
         HOOK_FUNCTION(Offsets::FUN_CGGAMEUI_SHUTDOWN, CGGameUI_Shutdown_h, CGGameUI_Shutdown_o);
     } else if (reason == DLL_PROCESS_DETACH) {
         MH_Uninitialize();

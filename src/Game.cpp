@@ -25,10 +25,16 @@ const lua_isstring_t IsString = reinterpret_cast<lua_isstring_t>(Offsets::LUA_IS
 const lua_tostring_t ToString = reinterpret_cast<lua_tostring_t>(Offsets::LUA_TO_STRING);
 const lua_pushstring_t PushString = reinterpret_cast<lua_pushstring_t>(Offsets::LUA_PUSH_STRING);
 const lua_gettable_t GetTable = reinterpret_cast<lua_gettable_t>(Offsets::LUA_GET_TABLE);
+const lua_settable_t SetTable = reinterpret_cast<lua_settable_t>(Offsets::LUA_SET_TABLE);
+const lua_newtable_t NewTable = reinterpret_cast<lua_newtable_t>(Offsets::LUA_NEW_TABLE);
 const lua_type_t Type = reinterpret_cast<lua_type_t>(Offsets::LUA_TYPE);
 const lua_next_t Next = reinterpret_cast<lua_next_t>(Offsets::LUA_NEXT);
 const lua_settop_t SetTop = reinterpret_cast<lua_settop_t>(Offsets::LUA_SET_TOP);
 const lua_error_t Error = reinterpret_cast<lua_error_t>(Offsets::LUA_ERROR);
+
+void *State() {
+    return *reinterpret_cast<void **>(static_cast<uintptr_t>(Offsets::VAR_LUA_STATE));
+}
 } // namespace Lua
 
 const FrameScript_RegisterFunction_t FrameScript_RegisterFunction =
@@ -57,8 +63,6 @@ const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs =
 const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects =
     reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
         Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-const FrameScript_Execute_t FrameScript_Execute =
-    reinterpret_cast<FrameScript_Execute_t>(Offsets::FUN_FRAME_SCRIPT_EXECUTE);
 const CGUnit_C_CanAssist_t CGUnit_C_CanAssist =
     reinterpret_cast<CGUnit_C_CanAssist_t>(Offsets::FUN_CGUNIT_C_CAN_ASSIST);
 

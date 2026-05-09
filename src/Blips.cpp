@@ -16,11 +16,15 @@
 #include "Game.h"
 #include "MinHook.h"
 #include "Offsets.h"
+#include "event/Custom.h"
 
 #include <algorithm>
+#include <fstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#include <windows.h>
 
 namespace Blips {
 
@@ -68,6 +72,9 @@ static uint64_t g_currentTargetGUID = 0;
 static bool g_focusTracking = false;
 static uint64_t g_focusGUID = 0;
 static uint64_t g_playerGUID = 0;
+static std::unordered_set<std::string> g_enabledTypes;
+static std::string g_configPath;
+static bool g_configLoaded = false;
 static Blip g_targetHostileBlip = {nullptr, 1.0F};
 static std::unordered_map<uint32_t, Blip> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
@@ -487,8 +494,7 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
         return 0;
     }
 
-    std::string typeName = Game::Lua::ToString(L, 1);
-    std::transform(typeName.begin(), typeName.end(), typeName.begin(), ::tolower);
+    const std::string typeName = Game::Lua::ToString(L, 1);
 
     std::string texturePath = Game::Lua::ToString(L, 2);
     std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
@@ -505,6 +511,77 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     }
 
     g_registeredIcons[typeName] = {texture, scale};
+    return 0;
+}
+
+// Bulk-register icons from a Lua array of `{ type, icon, scale, hostileIcon? }`
+// entries. Equivalent to a loop of MinimapBlip_RegisterIcon (and
+// MinimapBlip_RegisterHostileIcon when `hostileIcon` is present), but with
+// only one Lua→C transition for the whole batch.
+static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
+    if (!Game::Lua::IsTable(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterIcons({ {type, icon, scale, "
+                            "[hostileIcon]}, ... })");
+        return 0;
+    }
+
+    // Helpers that read a field off the entry-table at the given relative index.
+    // Pushing the key shifts negative indices by one, so we adjust before
+    // calling lua_gettable. The string variant copies into `out` BEFORE the
+    // pop so we don't hand back a pointer into Lua-managed memory that GC
+    // could free.
+    auto adjust = [](int idx) { return idx < 0 ? idx - 1 : idx; };
+    auto readField = [&](int tableStackIdx, const char *field, std::string &out) -> bool {
+        Game::Lua::PushString(L, field);
+        Game::Lua::GetTable(L, adjust(tableStackIdx));
+        bool ok = false;
+        if (Game::Lua::IsString(L, -1)) {
+            if (const char *s = Game::Lua::ToString(L, -1)) {
+                out = s;
+                ok = true;
+            }
+        }
+        Game::Lua::SetTop(L, -2); // pop looked-up value
+        return ok;
+    };
+    auto readScale = [&](int tableStackIdx) -> float {
+        Game::Lua::PushString(L, "scale");
+        Game::Lua::GetTable(L, adjust(tableStackIdx));
+        const float v = Game::Lua::IsNumber(L, -1)
+                            ? static_cast<float>(Game::Lua::ToNumber(L, -1))
+                            : 1.0F;
+        Game::Lua::SetTop(L, -2);
+        return v;
+    };
+
+    Game::Lua::PushNil(L);
+    while (Game::Lua::Next(L, 1) != 0) {
+        // Stack: [array, key, entry]
+        if (Game::Lua::IsTable(L, -1)) {
+            std::string typeName, iconPath, hostileIcon;
+            const bool hasType = readField(-1, "type", typeName);
+            const bool hasIcon = readField(-1, "icon", iconPath);
+            const float scale = readScale(-1);
+            const bool hasHostile = readField(-1, "hostileIcon", hostileIcon);
+
+            if (hasType && hasIcon) {
+                std::transform(iconPath.begin(), iconPath.end(), iconPath.begin(),
+                               ::tolower);
+                if (Game::HTEXTURE__ *tex = LoadTextureCached(iconPath)) {
+                    g_registeredIcons[typeName] = {tex, scale};
+                }
+            }
+
+            if (hasHostile) {
+                std::transform(hostileIcon.begin(), hostileIcon.end(), hostileIcon.begin(),
+                               ::tolower);
+                if (Game::HTEXTURE__ *htex = LoadTextureCached(hostileIcon)) {
+                    g_targetHostileBlip = {htex, scale};
+                }
+            }
+        }
+        Game::Lua::SetTop(L, -2); // pop value, keep key for next iteration
+    }
     return 0;
 }
 
@@ -532,27 +609,25 @@ static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
     return 0;
 }
 
-static int __fastcall Script_MinimapBlip_Track(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_Track(trackingType [, enabled])");
-        return 0;
-    }
+enum class ApplyResult { Applied, NoChange, UnknownType, IconMissing };
 
-    std::string typeName = Game::Lua::ToString(L, 1);
-    std::transform(typeName.begin(), typeName.end(), typeName.begin(), ::tolower);
-
-    bool enabled = true;
-    if (Game::Lua::IsNumber(L, 2)) {
-        enabled = (Game::Lua::ToNumber(L, 2) != 0.0);
-    }
+// Toggles tracking for a single type. `typeName` must be lowercase — this is
+// the canonical key form used throughout (`g_stringToFlag`, the
+// `"target"`/`"focus"` literal compares below, and `g_enabledTypes`).
+static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
+    auto recordEnabled = [&](bool on) {
+        if (on)
+            g_enabledTypes.insert(typeName);
+        else
+            g_enabledTypes.erase(typeName);
+    };
 
     if (typeName == "target") {
+        if (enabled == g_targetTracking)
+            return ApplyResult::NoChange;
         if (enabled) {
-            if (g_registeredIcons.find("target") == g_registeredIcons.end()) {
-                Game::Lua::Error(
-                    L, "No icon registered for target. Call MinimapBlip_RegisterIcon first.");
-                return 0;
-            }
+            if (g_registeredIcons.find("target") == g_registeredIcons.end())
+                return ApplyResult::IconMissing;
             g_targetTracking = true;
             InstallHooks();
         } else {
@@ -560,16 +635,16 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
             if (!IsAnyTrackingActive())
                 UninstallHooks();
         }
-        return 0;
+        recordEnabled(enabled);
+        return ApplyResult::Applied;
     }
 
     if (typeName == "focus") {
+        if (enabled == g_focusTracking)
+            return ApplyResult::NoChange;
         if (enabled) {
-            if (g_registeredIcons.find("focus") == g_registeredIcons.end()) {
-                Game::Lua::Error(
-                    L, "No icon registered for focus. Call MinimapBlip_RegisterIcon first.");
-                return 0;
-            }
+            if (g_registeredIcons.find("focus") == g_registeredIcons.end())
+                return ApplyResult::IconMissing;
             g_focusTracking = true;
             InstallHooks();
         } else {
@@ -577,19 +652,20 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
             if (!IsAnyTrackingActive())
                 UninstallHooks();
         }
-        return 0;
+        recordEnabled(enabled);
+        return ApplyResult::Applied;
     }
 
     const auto itFlag = g_stringToFlag.find(typeName);
     if (itFlag != g_stringToFlag.end()) {
+        const bool currently = g_trackedUnitFlagsBlips.find(itFlag->second) !=
+                               g_trackedUnitFlagsBlips.end();
+        if (enabled == currently)
+            return ApplyResult::NoChange;
         if (enabled) {
             const auto iconIt = g_registeredIcons.find(typeName);
-            if (iconIt == g_registeredIcons.end()) {
-                Game::Lua::Error(
-                    L,
-                    "No icon registered for this type. Call MinimapBlip_RegisterIcon first.");
-                return 0;
-            }
+            if (iconIt == g_registeredIcons.end())
+                return ApplyResult::IconMissing;
             InstallHooks();
             g_trackedUnitFlagsBlips[itFlag->second] = iconIt->second;
         } else {
@@ -597,19 +673,20 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
             if (!IsAnyTrackingActive())
                 UninstallHooks();
         }
-        return 0;
+        recordEnabled(enabled);
+        return ApplyResult::Applied;
     }
 
     const auto itType = g_stringToGameObjectType.find(typeName);
     if (itType != g_stringToGameObjectType.end()) {
+        const bool currently = g_trackedGameObjectTypesBlips.find(itType->second) !=
+                               g_trackedGameObjectTypesBlips.end();
+        if (enabled == currently)
+            return ApplyResult::NoChange;
         if (enabled) {
             const auto iconIt = g_registeredIcons.find(typeName);
-            if (iconIt == g_registeredIcons.end()) {
-                Game::Lua::Error(
-                    L,
-                    "No icon registered for this type. Call MinimapBlip_RegisterIcon first.");
-                return 0;
-            }
+            if (iconIt == g_registeredIcons.end())
+                return ApplyResult::IconMissing;
             InstallHooks();
             g_trackedGameObjectTypesBlips[itType->second] = iconIt->second;
         } else {
@@ -617,14 +694,177 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
             if (!IsAnyTrackingActive())
                 UninstallHooks();
         }
+        recordEnabled(enabled);
+        return ApplyResult::Applied;
+    }
+
+    return ApplyResult::UnknownType;
+}
+
+static void EnsureParentDir(const std::string &filePath) {
+    const size_t lastSlash = filePath.find_last_of("/\\");
+    if (lastSlash == std::string::npos)
+        return;
+    const std::string dir = filePath.substr(0, lastSlash);
+    size_t pos = 0;
+    while (true) {
+        pos = dir.find_first_of("/\\", pos + 1);
+        const std::string sub = (pos == std::string::npos) ? dir : dir.substr(0, pos);
+        if (!sub.empty())
+            CreateDirectoryA(sub.c_str(), nullptr);
+        if (pos == std::string::npos)
+            break;
+    }
+}
+
+static void WriteConfig() {
+    if (g_configPath.empty())
+        return;
+    EnsureParentDir(g_configPath);
+    std::ofstream file(g_configPath, std::ios::trunc);
+    if (!file.is_open())
+        return;
+    file << "# VanillaMinimapTracking — enabled tracking categories (one per line)\n";
+    for (const auto &name : g_enabledTypes)
+        file << name << "\n";
+}
+
+static const char *const kTrackingChangedEvent = "MINIMAP_BLIP_TRACKING_CHANGED";
+
+static void FireTrackingChanged(const std::string &typeName, bool enabled) {
+    const int eventID = Event::Custom::Register(kTrackingChangedEvent);
+    Event::Custom::Fire_SD(eventID, typeName.c_str(), enabled ? 1 : 0);
+}
+
+static bool EnsureConfigLoaded(); // defined below; forward-declared so the
+                                  // public Script_* entry points can call it
+static const char *ReadActiveAccountName();
+static const char *ReadActiveRealmName();
+static const char *ReadActiveCharacterName();
+
+static int __fastcall Script_MinimapBlip_Track(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_Track(trackingType [, enabled])");
         return 0;
     }
 
-    Game::Lua::Error(L, "Unknown tracking type. Supported types: target, Auctioneer, Banker, "
-                        "Battlemaster, Brainwashing, Flight Master, Innkeeper, Item Restore, "
-                        "Mailbox, Outdoor PvP, Repair, Stable Master, Summoning Ritual Object, "
-                        "Summoning Ritual Unit, Trainer, Transmog, Vendor.");
+    const std::string typeName = Game::Lua::ToString(L, 1);
+
+    bool enabled = true;
+    if (Game::Lua::IsNumber(L, 2))
+        enabled = (Game::Lua::ToNumber(L, 2) != 0.0);
+
+    EnsureConfigLoaded();
+
+    const ApplyResult r = ApplyTrack(typeName, enabled);
+    if (r == ApplyResult::UnknownType) {
+        Game::Lua::Error(
+            L, "Unknown tracking type. Supported types: target, Auctioneer, Banker, "
+               "Battlemaster, Brainwashing, Flight Master, Innkeeper, Item Restore, "
+               "Mailbox, Outdoor PvP, Repair, Stable Master, Summoning Ritual Object, "
+               "Summoning Ritual Unit, Trainer, Transmog, Vendor.");
+        return 0;
+    }
+    if (r == ApplyResult::IconMissing) {
+        Game::Lua::Error(L, "No icon registered for this type. Call MinimapBlip_RegisterIcon "
+                            "first.");
+        return 0;
+    }
+    if (r == ApplyResult::Applied) {
+        WriteConfig();
+        FireTrackingChanged(typeName, enabled);
+    }
     return 0;
+}
+
+static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: MinimapBlip_IsTracked(trackingType)");
+        return 0;
+    }
+    const std::string typeName = Game::Lua::ToString(L, 1);
+    EnsureConfigLoaded();
+    if (g_enabledTypes.count(typeName) == 0)
+        return 0; // nil in Lua → falsy
+    Game::Lua::PushNumber(L, 1.0);
+    return 1;
+}
+
+// Returns a Lua set keyed by lowercase type name (`{ target = 1, vendor = 1 }`).
+// Lets callers do a direct `tracked[name]` lookup without building their own
+// set from a list.
+static int __fastcall Script_MinimapBlip_GetTracked(void *L) {
+    EnsureConfigLoaded();
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+    for (const auto &name : g_enabledTypes) {
+        Game::Lua::PushString(L, name.c_str());
+        Game::Lua::PushNumber(L, 1.0);
+        Game::Lua::SetTable(L, -3);
+    }
+    return 1;
+}
+
+static const char *ReadActiveAccountName() {
+    return *reinterpret_cast<const char *const *>(Offsets::VAR_ACCOUNT_NAME_PTR);
+}
+
+static const char *ReadActiveCharacterName() {
+    auto *p = reinterpret_cast<const char *>(Offsets::VAR_CHARACTER_NAME);
+    return (p[0] == '\0') ? nullptr : p;
+}
+
+static const char *ReadActiveRealmName() {
+    auto *info = *reinterpret_cast<uint8_t **>(Offsets::VAR_REALM_INFO_PTR);
+    if (info == nullptr)
+        return nullptr;
+    return *reinterpret_cast<const char *const *>(info + Offsets::OFF_REALM_INFO_NAME);
+}
+
+static void LoadConfigFromFile() {
+    if (g_configPath.empty())
+        return;
+    std::ifstream file(g_configPath);
+    if (!file.is_open())
+        return;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        while (!line.empty() &&
+               (line.back() == '\r' || line.back() == ' ' || line.back() == '\t'))
+            line.pop_back();
+        if (line.empty() || line[0] == '#')
+            continue;
+        std::transform(line.begin(), line.end(), line.begin(), ::tolower);
+        ApplyTrack(line, true);
+    }
+}
+
+// Lazy: resolves account/realm/character via the engine's session globals on
+// first call after the player's in world, builds the per-character path, and
+// reads whatever was saved last session. No-op if the file doesn't exist
+// (first run on this character).
+static bool EnsureConfigLoaded() {
+    if (g_configLoaded)
+        return true;
+
+    const char *account = ReadActiveAccountName();
+    if (account == nullptr || account[0] == '\0')
+        return false;
+
+    const char *realm = ReadActiveRealmName();
+    if (realm == nullptr || realm[0] == '\0')
+        return false;
+
+    const char *player = ReadActiveCharacterName();
+    if (player == nullptr)
+        return false;
+
+    g_configPath = std::string("WTF\\Account\\") + account + "\\" + realm + "\\" + player +
+                   "\\VanillaMinimapTracking.cfg";
+    LoadConfigFromFile();
+    g_configLoaded = true;
+    return true;
 }
 
 static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
@@ -661,7 +901,6 @@ void RegisterLuaFunctions() {
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_RegisterHostileIcon",
         reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterHostileIcon));
-    Game::FrameScript_Execute("MINIMAP_BLIP_VERSION = \"1.0.0\"", "VanillaMinimapTracking");
     Game::FrameScript_RegisterFunction("MinimapBlip_Track",
                                        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
     Game::FrameScript_RegisterFunction(
@@ -671,6 +910,18 @@ void RegisterLuaFunctions() {
         reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocusByName));
     Game::FrameScript_RegisterFunction(
         "MinimapBlip_ClearFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_ClearFocus));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_IsTracked", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_IsTracked));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_GetTracked", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_GetTracked));
+    Game::FrameScript_RegisterFunction(
+        "MinimapBlip_RegisterIcons",
+        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterIcons));
+
+    // Seed the custom-event cache so an actual claim happens later (from the
+    // FrameRegisterEvent hook the first time Lua listens). Writes are
+    // disabled at this point so the slot index will be -1 until then.
+    Event::Custom::Register(kTrackingChangedEvent);
 }
 
 void Reset() {
@@ -684,6 +935,9 @@ void Reset() {
     g_focusTracking = false;
     g_focusGUID = 0;
     g_playerGUID = 0;
+    g_enabledTypes.clear();
+    g_configPath.clear();
+    g_configLoaded = false;
     g_blipHoverState = BlipHoverState();
     UninstallHooks();
 }

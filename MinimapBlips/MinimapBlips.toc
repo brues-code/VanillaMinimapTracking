@@ -3,7 +3,6 @@
 ## Author: Brues
 ## Version: 0.1
 ## Notes: Show Minimap Blips
-## SavedVariables: MinimapBlipsDB
 
 MinimapBlipsMenu.lua
 MinimapBlips.lua

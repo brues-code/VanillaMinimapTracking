@@ -369,6 +369,9 @@ struct CGxTexFlags {
 };
 
 namespace Lua {
+// Lua 5.0 pseudo-index for the globals table.
+constexpr int GLOBALS_INDEX = -10001;
+
 using lua_pushnil_t = void(__fastcall *)(void *L);
 using lua_isnumber_t = bool(__fastcall *)(void *L, int index);
 using lua_tonumber_t = double(__fastcall *)(void *L, int index);
@@ -377,6 +380,8 @@ using lua_isstring_t = bool(__fastcall *)(void *L, int index);
 using lua_tostring_t = const char *(__fastcall *)(void *L, int index);
 using lua_pushstring_t = void(__fastcall *)(void *L, const char *);
 using lua_gettable_t = void(__fastcall *)(void *L, int index);
+using lua_settable_t = void(__fastcall *)(void *L, int index);
+using lua_newtable_t = void(__fastcall *)(void *L);
 using lua_type_t = int(__fastcall *)(void *L, int index);
 using lua_next_t = int(__fastcall *)(void *L, int index);
 using lua_settop_t = void(__fastcall *)(void *L, int index);
@@ -390,6 +395,8 @@ extern const lua_isstring_t IsString;
 extern const lua_tostring_t ToString;
 extern const lua_pushstring_t PushString;
 extern const lua_gettable_t GetTable;
+extern const lua_settable_t SetTable;
+extern const lua_newtable_t NewTable;
 extern const lua_type_t Type;
 extern const lua_next_t Next;
 extern const lua_settop_t SetTop;
@@ -397,6 +404,10 @@ extern const lua_error_t Error;
 
 inline bool IsTable(void *L, int index) { return Type(L, index) == 5; }
 inline void Pop(void *L, int index) { SetTop(L, -(index)-1); }
+
+// Returns the engine's lua_State *, read on demand from the engine global.
+// Returns nullptr if the engine hasn't initialised the state yet.
+void *State();
 } // namespace Lua
 
 using FrameScript_RegisterFunction_t = void(__fastcall *)(const char *name, uintptr_t func);
@@ -435,8 +446,8 @@ using SStrPack_t = int(__stdcall *)(char *dst, const char *src, int cap);
 using CWorld_QueryMapObjIDs_t = bool(__fastcall *)(CWorld *thisptr, uint32_t *outWmoID,
                                                    uint32_t *outMapObjID, uint32_t *outGroupNum);
 using FrameScript_Initialize_t = bool(__fastcall *)();
-using FrameScript_Execute_t = bool(__fastcall *)(const char *script, const char *scriptName);
 using CGGameUI_Shutdown_t = void(__fastcall *)();
+using FrameRegisterEvent_t = void(__fastcall *)(void *frame, void *edx, const char *eventName);
 using CGUnit_C_CanAssist_t = bool(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
 
 extern const FrameScript_RegisterFunction_t FrameScript_RegisterFunction;
@@ -452,7 +463,6 @@ extern const WorldPosToMinimapFrameCoords_t WorldPosToMinimapFrameCoords;
 extern const SStrPack_t SStrPack;
 extern const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs;
 extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
-extern const FrameScript_Execute_t FrameScript_Execute;
 extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
 
 void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float scale, bool gray);

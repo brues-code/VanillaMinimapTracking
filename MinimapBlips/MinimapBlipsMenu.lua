@@ -6,24 +6,24 @@ local BLIP_SCALE_TRACKING = 1.5
 local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
 
 local BLIP_TYPES = {
-	{ type = "Target",                  label = "Target",              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Focus",                   label = "Focus",               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
-	{ type = "Auctioneer",              label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
-	{ type = "Banker",                  label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
-	{ type = "Flight Master",           label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Innkeeper",               label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
-	{ type = "Repair",                  label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
-	{ type = "Trainer",                 label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
-	{ type = "Stable Master",           label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Battlemaster",            label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "Vendor",                  label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
-	{ type = "Mailbox",                 label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
-	-- { type = "Transmog",                label = "Transmog",            icon = Icon("Transmogrifier"),                  scale = BLIP_SCALE_TRACKING },
-	-- { type = "Item Restore",            label = "Item Restore",        icon = "Interface\\Icons\\INV_Misc_Bag_07",                    scale = BLIP_SCALE_TRACKING },
-	-- { type = "Outdoor PvP",             label = "Outdoor PvP",         icon = "Interface\\Icons\\Achievement_PVP_A_01",               scale = BLIP_SCALE_TRACKING },
-	-- { type = "Summoning Ritual Unit",   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
-	-- { type = "Summoning Ritual Object", label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
-	-- { type = "Brainwashing",            label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate",    scale = BLIP_SCALE },
+	{ type = "target",                  label = "Target",              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
+	{ type = "focus",                   label = "Focus",               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
+	{ type = "auctioneer",              label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
+	{ type = "banker",                  label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
+	{ type = "flight master",           label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = "innkeeper",               label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
+	{ type = "repair",                  label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
+	{ type = "trainer",                 label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
+	{ type = "stable master",           label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = "battlemaster",            label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = "vendor",                  label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
+	{ type = "mailbox",                 label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
+	-- { type = "transmog",                label = "Transmog",            icon = Icon("Transmogrifier"),                  scale = BLIP_SCALE_TRACKING },
+	-- { type = "item restore",            label = "Item Restore",        icon = "Interface\\Icons\\INV_Misc_Bag_07",                    scale = BLIP_SCALE_TRACKING },
+	-- { type = "outdoor pvp",             label = "Outdoor PvP",         icon = "Interface\\Icons\\Achievement_PVP_A_01",               scale = BLIP_SCALE_TRACKING },
+	-- { type = "summoning ritual unit",   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = "summoning ritual object", label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = "brainwashing",            label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate",    scale = BLIP_SCALE },
 }
 
 local ROW_HEIGHT = 18
@@ -75,27 +75,36 @@ for i, entry in ipairs(BLIP_TYPES) do
 	row.blipType = entry.type
 
 	row:SetScript("OnClick", function()
-		MinimapBlipsDB[row.blipType] = not MinimapBlipsDB[row.blipType]
-		if MinimapBlipsDB[row.blipType] then
-			MinimapBlip_Track(row.blipType, 1)
-			row.check:Show()
-		else
-			MinimapBlip_Track(row.blipType, 0)
-			row.check:Hide()
-		end
+		local nextState = not row.check:IsShown()
+		MinimapBlip_Track(row.blipType, nextState and 1 or 0)
 	end)
 
 	rows[i] = row
 end
 
-function MinimapBlipsMenu_ApplyAll()
-	for _, entry in ipairs(BLIP_TYPES) do
-		MinimapBlip_RegisterIcon(entry.type, entry.icon, entry.scale)
-		if entry.hostileIcon then
-			MinimapBlip_RegisterHostileIcon(entry.hostileIcon, entry.scale)
+function MinimapBlipsMenu_RegisterIcons()
+	MinimapBlip_RegisterIcons(BLIP_TYPES)
+end
+
+function MinimapBlipsMenu_RefreshAll()
+	local tracked = MinimapBlip_GetTracked()
+	for _, row in ipairs(rows) do
+		if tracked[row.blipType] then
+			row.check:Show()
+		else
+			row.check:Hide()
 		end
-		if MinimapBlipsDB[entry.type] then
-			MinimapBlip_Track(entry.type, 1)
+	end
+end
+
+function MinimapBlipsMenu_OnTrackingChanged(blipType, enabled)
+	for _, row in ipairs(rows) do
+		if row.blipType == blipType then
+			if enabled == 1 then
+				row.check:Show()
+			else
+				row.check:Hide()
+			end
 		end
 	end
 end
@@ -105,13 +114,7 @@ function MinimapBlipsMenu_Toggle(anchorButton)
 		menu:Hide()
 		return
 	end
-	for _, row in ipairs(rows) do
-		if MinimapBlipsDB[row.blipType] then
-			row.check:Show()
-		else
-			row.check:Hide()
-		end
-	end
+	MinimapBlipsMenu_RefreshAll()
 	menu:ClearAllPoints()
 	menu:SetPoint("TOPRIGHT", anchorButton, "TOPLEFT", 0, -5)
 	menu:Show()

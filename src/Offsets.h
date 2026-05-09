@@ -39,9 +39,19 @@ enum Offsets {
     FUN_INVALID_FUNCTION_PTR_CHECK = 0x42A320,
     FUN_CWORLD_QUERY_MAP_OBJ_IDS = 0x670540,
     FUN_FRAME_SCRIPT_INITIALIZE = 0x7039E0,
-    FUN_FRAME_SCRIPT_EXECUTE = 0x704CD0,
     FUN_CGGAMEUI_SHUTDOWN = 0X490BD0,
     FUN_CGUNIT_C_CAN_ASSIST = 0x6066F0,
+
+    // FrameScript_SignalEvent2 — fires a custom event with a printf-style
+    // format string, dispatching arg1, arg2, ... to all frames that have
+    // registered the event by name.
+    FUN_FIRE_EVENT = 0x00703F50,
+    // Frame::RegisterEvent(name) — used as a hook point to retry custom
+    // event-table slot claims after the engine has rebuilt its table.
+    FUN_FRAME_REGISTER_EVENT = 0x00702140,
+    // Storm SMemAlloc — used to allocate event-name strings the engine
+    // expects to free via SMemFree during reload teardown.
+    FUN_STORM_SMEM_ALLOC = 0x006462E0,
 
     LUA_PUSH_NIL = 0x6F37F0,
     LUA_IS_NUMBER = 0x6F34D0,
@@ -51,10 +61,33 @@ enum Offsets {
     LUA_TO_STRING = 0x6F3690,
     LUA_PUSH_STRING = 0x6F3890,
     LUA_GET_TABLE = 0x6F3A40,
+    LUA_SET_TABLE = 0x6F3E20,
+    LUA_NEW_TABLE = 0x6F3C90,
     LUA_TYPE = 0x6F3400,
     LUA_NEXT = 0x6F4450,
     LUA_SET_TOP = 0x6F3080,
     LUA_ERROR = 0x6F4940,
+
+    VAR_LUA_STATE = 0x00CEEF74,
+
+    // Engine globals that the SavedVariables/AddOns.txt path-builder at
+    // 0x0051EBE0 uses to format `WTF\Account\<account>\<realm>\<character>`.
+    //
+    // Account is the value WoW writes the per-character WTF directory under —
+    // NOT the saved-credentials CVAR string at 0x008826C8 we tried first.
+    VAR_ACCOUNT_NAME_PTR = 0x00BE1C0C,    // *(char**) — account name string
+    VAR_CHARACTER_NAME = 0x00C27D88,      // inline char buffer (NUL byte 0 ⇒ no active char)
+    VAR_REALM_INFO_PTR = 0x00C28130,      // *(struct**); struct at +0x20 holds realm name char*
+    OFF_REALM_INFO_NAME = 0x20,
+
+    // Engine event registry. `[VAR_EVENT_TABLE_BASE_PTR]` dereferences to
+    // an array of 16-byte entries; `[VAR_EVENT_TABLE_COUNT]` is the live
+    // entry count. Each entry's `+OFF_EVENT_ENTRY_NAME` is a Storm-allocated
+    // C-string (NULL means "free slot we can claim for a custom event").
+    VAR_EVENT_TABLE_BASE_PTR = 0x00CEEF68,
+    VAR_EVENT_TABLE_COUNT = 0x00CEEF64,
+    EVENT_ENTRY_STRIDE = 0x10,
+    OFF_EVENT_ENTRY_NAME = 0x00,
 
     CONST_BLIP_VERTICES = 0xBC8230,
     CONST_NORMAL_VEC3 = 0xBC829C,
