@@ -12,16 +12,15 @@ a small button next to the minimap.
 
 - **`src/`** — a C++ DLL that injects into WoW.exe via the VanillaFixes loader.
   It hooks WoW's per-frame visible-object enumeration and the minimap render
-  pipeline to draw extra blips and inject hover-tooltip text. It also
-  registers a small Lua API (`MinimapBlip_Track`, `MinimapBlip_SetFocus`,
-  etc.) that the addon uses.
+  pipeline to draw extra blips and inject hover-tooltip text. It owns the
+  per-character config (lazy-loaded from `WTF\Account\<account>\<realm>\
+  <character>\VanillaMinimapTracking.cfg` on first API call after login,
+  written back on every toggle) and exposes a small Lua API + a custom
+  `MINIMAP_BLIP_TRACKING_CHANGED` event.
 - **`MinimapBlips/`** — a companion WoW addon that puts the toggle button on
-  the minimap, shows the category menu, and persists which categories you
-  have enabled. The addon is just a UI on top of the DLL's Lua API; without
-  the DLL, the addon does nothing and shows a chat warning.
-
-The two pieces ship together: the DLL provides the rendering and per-object
-tracking, the addon provides the UI.
+  the minimap and renders the category menu. It's a thin UI on top of the
+  DLL's Lua API — no `SavedVariables`, no path knowledge. Without the DLL
+  loaded, the addon shows a chat warning and does nothing.
 
 ## Categories
 
@@ -74,8 +73,38 @@ Both the DLL and the addon need to be installed — the addon detects the DLL
 via the `MINIMAP_BLIP_VERSION` global and refuses to load if the DLL is
 missing.
 
+## Lua API
+
+All functions take **lowercase** type names (`"target"`, `"flight master"`,
+`"mailbox"`, etc.).
+
+| Function                                              | Returns               | Notes                                                                  |
+|-------------------------------------------------------|-----------------------|------------------------------------------------------------------------|
+| `MinimapBlip_RegisterIcons({{type, icon, scale, hostileIcon?}, ...})` | —                     | Bulk-register icons in one call. `hostileIcon` is only honored on `target`. |
+| `MinimapBlip_RegisterIcon(type, icon, scale)`         | —                     | Single-icon variant.                                                   |
+| `MinimapBlip_RegisterHostileIcon(icon, scale)`        | —                     | Sets the hostile-target variant separately.                            |
+| `MinimapBlip_Track(type, 0\|1)`                        | —                     | Toggle a category on/off. Persists immediately.                         |
+| `MinimapBlip_IsTracked(type)`                          | `1` or `nil`          | `if MinimapBlip_IsTracked(t) then ... end`.                            |
+| `MinimapBlip_GetTracked()`                             | `{type=1, ...}` set   | All currently-tracked types as a set keyed by lowercase name.          |
+| `MinimapBlip_SetFocus()`                               | —                     | Captures the current target as the focus unit.                         |
+| `MinimapBlip_SetFocusByName(name)`                     | —                     | Captures a unit by name (silent fail if not found).                    |
+| `MinimapBlip_ClearFocus()`                             | —                     | Drops the focus.                                                       |
+| `MINIMAP_BLIP_VERSION`                                 | global `number`       | Truthy ⇒ DLL is loaded. Use as a presence check.                       |
+
+A real WoW event fires whenever tracking state changes — register it with
+`frame:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")` and dispatch from the
+addon's `OnEvent` like any built-in event. Args: `arg1` = type name, `arg2`
+= `1` (enabled) or `0` (disabled).
+
 ## Notes for the curious
 
 The DLL hooks a handful of well-known WoW 1.12.1 functions to render extra
 blips (see [`src/Blips.cpp`](src/Blips.cpp)) and reads creature subnames
 directly out of the in-memory creature cache (`unit + 0xB30 → cache + 0x10`).
+Per-character path resolution uses three engine session globals
+(`0x00BE1C0C`, `0x00C28130+0x20`, `0x00C27D88`) — the same trio WoW itself
+reads to write `AddOns.txt` and other per-character WTF files (see
+[ClassicAPI/docs/SessionGlobals.md](https://github.com/brues-code/ClassicAPI/blob/main/docs/SessionGlobals.md)).
+The custom `MINIMAP_BLIP_TRACKING_CHANGED` event is dispatched via the
+engine's own event table by claiming an unused slot — addons listen for it
+exactly the same way they would for a built-in event.
