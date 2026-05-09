@@ -341,24 +341,17 @@ static void WriteToMinimapTooltip(char *tooltipText) {
         return;
 
     for (const auto &hit : g_blipHoverState.hits) {
-        if (hit.gray) {
+        if (hit.gray)
             Game::SStrPack(tooltipText, "|cffb0b0b0", 0x400);
-            Game::SStrPack(tooltipText, hit.name.c_str(), 0x400);
-            if (!hit.subName.empty()) {
-                Game::SStrPack(tooltipText, "\n<", 0x400);
-                Game::SStrPack(tooltipText, hit.subName.c_str(), 0x400);
-                Game::SStrPack(tooltipText, ">", 0x400);
-            }
-            Game::SStrPack(tooltipText, "|r\n", 0x400);
-        } else {
-            Game::SStrPack(tooltipText, hit.name.c_str(), 0x400);
-            if (!hit.subName.empty()) {
-                Game::SStrPack(tooltipText, "\n<", 0x400);
-                Game::SStrPack(tooltipText, hit.subName.c_str(), 0x400);
-                Game::SStrPack(tooltipText, ">", 0x400);
-            }
-            Game::SStrPack(tooltipText, "\n", 0x400);
+        Game::SStrPack(tooltipText, hit.name.c_str(), 0x400);
+        if (!hit.subName.empty()) {
+            Game::SStrPack(tooltipText, "\n<", 0x400);
+            Game::SStrPack(tooltipText, hit.subName.c_str(), 0x400);
+            Game::SStrPack(tooltipText, ">", 0x400);
         }
+        if (hit.gray)
+            Game::SStrPack(tooltipText, "|r", 0x400);
+        Game::SStrPack(tooltipText, "\n", 0x400);
     }
 }
 
@@ -731,7 +724,10 @@ static void EnsureParentDir(const std::string &filePath) {
     }
 }
 
-static void WriteConfig() {
+// Flushes the in-memory `g_enabledTypes` set to disk. Mirrors how WoW writes
+// AddOns.txt — only on UI shutdown (clean logout / `/reload`), not on every
+// toggle. Called from `CGGameUI_Shutdown_h` before `Reset()`.
+void Save() {
     if (g_configPath.empty())
         return;
     EnsureParentDir(g_configPath);
@@ -781,7 +777,6 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        WriteConfig();
         FireTrackingChanged(typeName, enabled);
     }
     return 0;
@@ -809,7 +804,6 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        WriteConfig();
         FireTrackingChanged(typeName, nextState);
     }
     return 0;

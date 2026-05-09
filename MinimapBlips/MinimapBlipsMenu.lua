@@ -44,7 +44,6 @@ menu:Hide()
 local function GenerateRows()
 	if menu.rows then return end
 	local tracked = C_MinimapBlip.GetTracked()
-	local rows = {}
 	for i, entry in ipairs(BLIP_TYPES) do
 		local row = CreateFrame("Button", nil, menu)
 		row:SetWidth(ROW_WIDTH)
@@ -91,10 +90,8 @@ local function GenerateRows()
 			end
 		end)
 		row:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
-
-		rows[i] = row
 	end
-	menu.rows = rows
+	menu.rows = true
 end
 
 function MinimapBlipsMenu_RegisterIcons()

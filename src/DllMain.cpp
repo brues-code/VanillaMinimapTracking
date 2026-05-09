@@ -52,6 +52,10 @@ static void __fastcall FrameRegisterEvent_h(void *frame, void *edx, const char *
 
 static void __fastcall CGGameUI_Shutdown_h() {
     CGGameUI_Shutdown_o();
+    // Match WoW's own behavior (AddOns.txt etc.): flush state on UI teardown
+    // — fires on both clean logout and `/reload`. Reset clears the path, so
+    // Save must run first.
+    Blips::Save();
     Blips::Reset();
 }
 

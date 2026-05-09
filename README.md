@@ -15,8 +15,8 @@ a small button next to the minimap.
   pipeline to draw extra blips and inject hover-tooltip text. It owns the
   per-character config (lazy-loaded from `WTF\Account\<account>\<realm>\
   <character>\VanillaMinimapTracking.txt` on first API call after login,
-  written back on every toggle) and exposes a small Lua API + a custom
-  `MINIMAP_BLIP_TRACKING_CHANGED` event.
+  flushed back on UI shutdown — same convention as `AddOns.txt`) and
+  exposes a small Lua API + a custom `MINIMAP_BLIP_TRACKING_CHANGED` event.
 - **`MinimapBlips/`** — a companion WoW addon that puts the toggle button on
   the minimap and renders the category menu. It's a thin UI on top of the
   DLL's Lua API — no `SavedVariables`, no path knowledge. Without the DLL
