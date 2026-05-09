@@ -110,11 +110,7 @@ static constexpr BlipTypeDef kBlipTypes[] = {
     {"StableMaster",          "stable master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER},
     {"SummoningRitualUnit",   "summoning ritual unit",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_SUMMONING_RITUAL},
     {"Trainer",               "trainer",                 BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER},
-    {"Transmog",              "transmog",                BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRANSMOG},
-    {"ItemRestore",           "item restore",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_ITEMRESTORE},
-    {"OutdoorPvp",            "outdoor pvp",             BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_OUTDOORPVP},
     {"Vendor",                "vendor",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR},
-    {"Brainwashing",          "brainwashing",            BlipKind::GameObject, Game::GAMEOBJECT_TYPE_QUESTGIVER}, // additionally filtered by displayID in CheckObject
     {"Mailbox",               "mailbox",                 BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX},
     {"SummoningRitualObject", "summoning ritual object", BlipKind::GameObject, Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL},
 };
@@ -250,15 +246,10 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
         }
     } else if (objptr->m_objectType == Game::OBJECT_TYPE::GAMEOBJECT) {
         const auto *gameObjectData = reinterpret_cast<Game::CGGameObjectData *>(objptr->m_data);
-
         const auto it = g_trackedGameObjectTypesBlips.find(gameObjectData->m_type);
         if (it != g_trackedGameObjectTypesBlips.end()) {
-            // Goblin Brainwashing Device filtering
-            if (gameObjectData->m_type != Game::GAMEOBJECT_TYPES::GAMEOBJECT_TYPE_QUESTGIVER ||
-                gameObjectData->m_displayID == 6424) {
-                TrackObject(info, objptr, guid, it->second);
-                return true;
-            }
+            TrackObject(info, objptr, guid, it->second);
+            return true;
         }
     }
     return false;
@@ -752,10 +743,9 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     const ApplyResult r = ApplyTrack(typeName, enabled);
     if (r == ApplyResult::UnknownType) {
         Game::Lua::Error(
-            L, "Unknown tracking type. Supported types: target, Auctioneer, Banker, "
-               "Battlemaster, Brainwashing, Flight Master, Innkeeper, Item Restore, "
-               "Mailbox, Outdoor PvP, Repair, Stable Master, Summoning Ritual Object, "
-               "Summoning Ritual Unit, Trainer, Transmog, Vendor.");
+            L, "Unknown tracking type. Supported types: target, focus, auctioneer, banker, "
+               "battlemaster, flight master, innkeeper, item restore, mailbox, outdoor pvp, "
+               "repair, stable master, trainer, transmog, vendor.");
         return 0;
     }
     if (r == ApplyResult::IconMissing) {
