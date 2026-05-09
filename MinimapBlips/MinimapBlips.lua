@@ -55,15 +55,10 @@ end
 
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("PLAYER_LOGIN")
-eventFrame:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
 eventFrame:SetScript("OnEvent", function()
 	if event == "ADDON_LOADED" and arg1 == "MinimapBlips" then
 		MinimapBlips_OnAddonLoaded()
 	elseif event == "PLAYER_LOGIN" then
 		MinimapBlips_OnPlayerLogin()
-	elseif event == "MINIMAP_BLIP_TRACKING_CHANGED" then
-		if MinimapBlipsMenu_OnTrackingChanged then
-			MinimapBlipsMenu_OnTrackingChanged(arg1, arg2)
-		end
 	end
 end)

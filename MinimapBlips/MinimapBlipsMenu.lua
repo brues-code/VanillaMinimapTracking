@@ -6,8 +6,8 @@ local BLIP_SCALE_TRACKING = 1.5
 local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
 
 local BLIP_TYPES = {
-	{ type = "target",                  label = "Target",              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
-	{ type = "focus",                   label = "Focus",               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
+	{ type = "target",                  label = TARGET,              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
+	{ type = "focus",                   label = FOCUS,               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
 	{ type = "auctioneer",              label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
 	{ type = "banker",                  label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
 	{ type = "flight master",           label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
@@ -79,6 +79,19 @@ for i, entry in ipairs(BLIP_TYPES) do
 		C_MinimapBlip.Track(row.blipType, nextState and 1 or 0)
 	end)
 
+	row:SetScript("OnEvent", function()
+		if event == "MINIMAP_BLIP_TRACKING_CHANGED" then
+			if this.blipType == arg1 then
+				if arg2 == 1 then
+					this.check:Show()
+				else
+					this.check:Hide()
+				end
+			end
+		end
+	end)
+	row:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
+
 	rows[i] = row
 end
 
@@ -93,18 +106,6 @@ function MinimapBlipsMenu_RefreshAll()
 			row.check:Show()
 		else
 			row.check:Hide()
-		end
-	end
-end
-
-function MinimapBlipsMenu_OnTrackingChanged(blipType, enabled)
-	for _, row in ipairs(rows) do
-		if row.blipType == blipType then
-			if enabled == 1 then
-				row.check:Show()
-			else
-				row.check:Hide()
-			end
 		end
 	end
 end
