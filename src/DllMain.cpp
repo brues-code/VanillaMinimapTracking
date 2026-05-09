@@ -29,17 +29,7 @@ static bool __fastcall FrameScript_Initialize_h() {
     // Invalidate cached event-slot indices BEFORE the engine tears down its
     // event table — the table is rebuilt at a fresh address afterwards.
     Event::Custom::PrepareForReload();
-
     FrameScript_Initialize_o();
-
-    // Set MINIMAP_BLIP_VERSION as a number directly via the Lua C API. No
-    // string-build + parse round-trip; addons checking `if MINIMAP_BLIP_VERSION
-    // then` see a truthy number.
-    if (void *L = Game::Lua::State()) {
-        Game::Lua::PushString(L, "MINIMAP_BLIP_VERSION");
-        Game::Lua::PushNumber(L, static_cast<double>(VANILLAMINIMAPTRACKING_VERSION_VALUE));
-        Game::Lua::SetTable(L, Game::Lua::GLOBALS_INDEX);
-    }
     return true;
 }
 

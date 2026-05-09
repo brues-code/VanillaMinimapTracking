@@ -3,7 +3,7 @@
 local eventFrame = CreateFrame("Frame")
 
 local function MinimapBlips_OnAddonLoaded()
-	if not MINIMAP_BLIP_VERSION then
+	if not C_MinimapBlip then
 		DEFAULT_CHAT_FRAME:AddMessage("|cffff4444MinimapBlips:|r VanillaMinimapTracking not found. Addon disabled.")
 		return
 	end
@@ -47,7 +47,7 @@ local function MinimapBlips_OnAddonLoaded()
 end
 
 local function MinimapBlips_OnPlayerLogin()
-	if not MINIMAP_BLIP_VERSION then return end
+	if not C_MinimapBlip then return end
 	-- Querying IsTracked is what triggers the DLL's lazy config load on the
 	-- first call after login; we just need the menu's current state synced.
 	if MinimapBlipsMenu_RefreshAll then MinimapBlipsMenu_RefreshAll() end

@@ -379,6 +379,7 @@ using lua_pushnumber_t = void(__fastcall *)(void *L, double value);
 using lua_isstring_t = bool(__fastcall *)(void *L, int index);
 using lua_tostring_t = const char *(__fastcall *)(void *L, int index);
 using lua_pushstring_t = void(__fastcall *)(void *L, const char *);
+using lua_pushcclosure_t = void(__fastcall *)(void *L, int(__fastcall *fn)(void *L), int upvals);
 using lua_gettable_t = void(__fastcall *)(void *L, int index);
 using lua_settable_t = void(__fastcall *)(void *L, int index);
 using lua_newtable_t = void(__fastcall *)(void *L);
@@ -394,6 +395,7 @@ extern const lua_pushnumber_t PushNumber;
 extern const lua_isstring_t IsString;
 extern const lua_tostring_t ToString;
 extern const lua_pushstring_t PushString;
+extern const lua_pushcclosure_t PushCClosure;
 extern const lua_gettable_t GetTable;
 extern const lua_settable_t SetTable;
 extern const lua_newtable_t NewTable;
@@ -408,6 +410,12 @@ inline void Pop(void *L, int index) { SetTop(L, -(index)-1); }
 // Returns the engine's lua_State *, read on demand from the engine global.
 // Returns nullptr if the engine hasn't initialised the state yet.
 void *State();
+
+// Registers `func` at `_G[tableName][methodName]`, creating the namespace
+// table if it doesn't already exist. Lets us expose Blizzard-style C_*
+// APIs (e.g. `C_MinimapBlip.RegisterIcons`) instead of flat globals.
+void RegisterTableFunction(const char *tableName, const char *methodName,
+                           int(__fastcall *func)(void *L));
 } // namespace Lua
 
 using FrameScript_RegisterFunction_t = void(__fastcall *)(const char *name, uintptr_t func);

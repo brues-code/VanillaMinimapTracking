@@ -490,7 +490,7 @@ static Game::HTEXTURE__ *LoadTextureCached(const std::string &texturePathLower) 
 
 static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterIcon(trackingType, icon [, scale])");
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterIcon(trackingType, icon [, scale])");
         return 0;
     }
 
@@ -515,12 +515,12 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
 }
 
 // Bulk-register icons from a Lua array of `{ type, icon, scale, hostileIcon? }`
-// entries. Equivalent to a loop of MinimapBlip_RegisterIcon (and
-// MinimapBlip_RegisterHostileIcon when `hostileIcon` is present), but with
+// entries. Equivalent to a loop of C_MinimapBlip.RegisterIcon (and
+// C_MinimapBlip.RegisterHostileIcon when `hostileIcon` is present), but with
 // only one Lua→C transition for the whole batch.
 static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     if (!Game::Lua::IsTable(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterIcons({ {type, icon, scale, "
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterIcons({ {type, icon, scale, "
                             "[hostileIcon]}, ... })");
         return 0;
     }
@@ -587,7 +587,7 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
 
 static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_RegisterHostileIcon(icon [, scale])");
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterHostileIcon(icon [, scale])");
         return 0;
     }
 
@@ -744,7 +744,7 @@ static const char *ReadActiveCharacterName();
 
 static int __fastcall Script_MinimapBlip_Track(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_Track(trackingType [, enabled])");
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.Track(trackingType [, enabled])");
         return 0;
     }
 
@@ -766,8 +766,8 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
     if (r == ApplyResult::IconMissing) {
-        Game::Lua::Error(L, "No icon registered for this type. Call MinimapBlip_RegisterIcon "
-                            "first.");
+        Game::Lua::Error(L, "No icon registered for this type. Call "
+                            "C_MinimapBlip.RegisterIcon first.");
         return 0;
     }
     if (r == ApplyResult::Applied) {
@@ -779,7 +779,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
 
 static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_IsTracked(trackingType)");
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.IsTracked(trackingType)");
         return 0;
     }
     const std::string typeName = Game::Lua::ToString(L, 1);
@@ -879,7 +879,7 @@ static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
 
 static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: MinimapBlip_SetFocusByName(name)");
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.SetFocusByName(name)");
         return 0;
     }
     const std::string name = Game::Lua::ToString(L, 1);
@@ -895,28 +895,17 @@ static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
 }
 
 void RegisterLuaFunctions() {
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_RegisterIcon",
-        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterIcon));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_RegisterHostileIcon",
-        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterHostileIcon));
-    Game::FrameScript_RegisterFunction("MinimapBlip_Track",
-                                       reinterpret_cast<uintptr_t>(&Script_MinimapBlip_Track));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_SetFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocus));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_SetFocusByName",
-        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_SetFocusByName));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_ClearFocus", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_ClearFocus));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_IsTracked", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_IsTracked));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_GetTracked", reinterpret_cast<uintptr_t>(&Script_MinimapBlip_GetTracked));
-    Game::FrameScript_RegisterFunction(
-        "MinimapBlip_RegisterIcons",
-        reinterpret_cast<uintptr_t>(&Script_MinimapBlip_RegisterIcons));
+    constexpr const char *NS = "C_MinimapBlip";
+    Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
+    Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
+    Game::Lua::RegisterTableFunction(NS, "RegisterHostileIcon",
+                                     &Script_MinimapBlip_RegisterHostileIcon);
+    Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
+    Game::Lua::RegisterTableFunction(NS, "IsTracked", &Script_MinimapBlip_IsTracked);
+    Game::Lua::RegisterTableFunction(NS, "GetTracked", &Script_MinimapBlip_GetTracked);
+    Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);
+    Game::Lua::RegisterTableFunction(NS, "SetFocusByName", &Script_MinimapBlip_SetFocusByName);
+    Game::Lua::RegisterTableFunction(NS, "ClearFocus", &Script_MinimapBlip_ClearFocus);
 
     // Seed the custom-event cache so an actual claim happens later (from the
     // FrameRegisterEvent hook the first time Lua listens). Writes are

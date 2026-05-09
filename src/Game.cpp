@@ -24,6 +24,8 @@ const lua_pushnumber_t PushNumber = reinterpret_cast<lua_pushnumber_t>(Offsets::
 const lua_isstring_t IsString = reinterpret_cast<lua_isstring_t>(Offsets::LUA_IS_STRING);
 const lua_tostring_t ToString = reinterpret_cast<lua_tostring_t>(Offsets::LUA_TO_STRING);
 const lua_pushstring_t PushString = reinterpret_cast<lua_pushstring_t>(Offsets::LUA_PUSH_STRING);
+const lua_pushcclosure_t PushCClosure =
+    reinterpret_cast<lua_pushcclosure_t>(Offsets::LUA_PUSH_CCLOSURE);
 const lua_gettable_t GetTable = reinterpret_cast<lua_gettable_t>(Offsets::LUA_GET_TABLE);
 const lua_settable_t SetTable = reinterpret_cast<lua_settable_t>(Offsets::LUA_SET_TABLE);
 const lua_newtable_t NewTable = reinterpret_cast<lua_newtable_t>(Offsets::LUA_NEW_TABLE);
@@ -34,6 +36,32 @@ const lua_error_t Error = reinterpret_cast<lua_error_t>(Offsets::LUA_ERROR);
 
 void *State() {
     return *reinterpret_cast<void **>(static_cast<uintptr_t>(Offsets::VAR_LUA_STATE));
+}
+
+void RegisterTableFunction(const char *tableName, const char *methodName,
+                           int(__fastcall *func)(void *L)) {
+    void *L = State();
+    if (L == nullptr)
+        return;
+
+    // If _G[tableName] doesn't already exist as a table, create it.
+    PushString(L, tableName);
+    GetTable(L, GLOBALS_INDEX);
+    const bool alreadyExists = (Type(L, -1) == 5); // 5 == LUA_TTABLE
+    SetTop(L, -2);                                 // pop the lookup result
+    if (!alreadyExists) {
+        PushString(L, tableName);
+        NewTable(L);
+        SetTable(L, GLOBALS_INDEX);
+    }
+
+    // Re-fetch the namespace and set the method on it.
+    PushString(L, tableName);
+    GetTable(L, GLOBALS_INDEX);   // [tbl]
+    PushString(L, methodName);    // [tbl, methodName]
+    PushCClosure(L, func, 0);     // [tbl, methodName, closure]
+    SetTable(L, -3);              // tbl[methodName] = closure; pops k+v. [tbl]
+    SetTop(L, -2);                // pop tbl. []
 }
 } // namespace Lua
 

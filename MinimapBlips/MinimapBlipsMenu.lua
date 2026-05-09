@@ -76,18 +76,18 @@ for i, entry in ipairs(BLIP_TYPES) do
 
 	row:SetScript("OnClick", function()
 		local nextState = not row.check:IsShown()
-		MinimapBlip_Track(row.blipType, nextState and 1 or 0)
+		C_MinimapBlip.Track(row.blipType, nextState and 1 or 0)
 	end)
 
 	rows[i] = row
 end
 
 function MinimapBlipsMenu_RegisterIcons()
-	MinimapBlip_RegisterIcons(BLIP_TYPES)
+	C_MinimapBlip.RegisterIcons(BLIP_TYPES)
 end
 
 function MinimapBlipsMenu_RefreshAll()
-	local tracked = MinimapBlip_GetTracked()
+	local tracked = C_MinimapBlip.GetTracked()
 	for _, row in ipairs(rows) do
 		if tracked[row.blipType] then
 			row.check:Show()
