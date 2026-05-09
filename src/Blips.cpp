@@ -777,6 +777,34 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     return 0;
 }
 
+// Flips the tracked state of `type` without the caller having to know its
+// current value — UI handlers just call `C_MinimapBlip.Toggle(t)`.
+static int __fastcall Script_MinimapBlip_Toggle(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_MinimapBlip.Toggle(trackingType)");
+        return 0;
+    }
+    const std::string typeName = Game::Lua::ToString(L, 1);
+    EnsureConfigLoaded();
+
+    const bool nextState = (g_enabledTypes.count(typeName) == 0);
+    const ApplyResult r = ApplyTrack(typeName, nextState);
+    if (r == ApplyResult::UnknownType) {
+        Game::Lua::Error(L, "Unknown tracking type.");
+        return 0;
+    }
+    if (r == ApplyResult::IconMissing) {
+        Game::Lua::Error(L, "No icon registered for this type. Call "
+                            "C_MinimapBlip.RegisterIcon first.");
+        return 0;
+    }
+    if (r == ApplyResult::Applied) {
+        WriteConfig();
+        FireTrackingChanged(typeName, nextState);
+    }
+    return 0;
+}
+
 static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: C_MinimapBlip.IsTracked(trackingType)");
@@ -901,6 +929,7 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(NS, "RegisterHostileIcon",
                                      &Script_MinimapBlip_RegisterHostileIcon);
     Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
+    Game::Lua::RegisterTableFunction(NS, "Toggle", &Script_MinimapBlip_Toggle);
     Game::Lua::RegisterTableFunction(NS, "IsTracked", &Script_MinimapBlip_IsTracked);
     Game::Lua::RegisterTableFunction(NS, "GetTracked", &Script_MinimapBlip_GetTracked);
     Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);

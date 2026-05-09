@@ -75,8 +75,7 @@ for i, entry in ipairs(BLIP_TYPES) do
 	row.blipType = entry.type
 
 	row:SetScript("OnClick", function()
-		local nextState = not row.check:IsShown()
-		C_MinimapBlip.Track(row.blipType, nextState and 1 or 0)
+		C_MinimapBlip.Toggle(row.blipType)
 	end)
 
 	row:SetScript("OnEvent", function()

@@ -83,7 +83,8 @@ etc.).
 | `C_MinimapBlip.RegisterIcons({{type, icon, scale, hostileIcon?}, ...})` | —                   | Bulk-register icons in one call. `hostileIcon` is only honored on `target`. |
 | `C_MinimapBlip.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |
 | `C_MinimapBlip.RegisterHostileIcon(icon, scale)`                      | —                   | Sets the hostile-target variant separately.                                 |
-| `C_MinimapBlip.Track(type, 0\|1)`                                      | —                   | Toggle a category on/off. Persists immediately.                              |
+| `C_MinimapBlip.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Persists immediately.                       |
+| `C_MinimapBlip.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
 | `C_MinimapBlip.IsTracked(type)`                                        | `1` or `nil`        | `if C_MinimapBlip.IsTracked(t) then ... end`.                               |
 | `C_MinimapBlip.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
 | `C_MinimapBlip.SetFocus()`                                             | —                   | Captures the current target as the focus unit.                              |
