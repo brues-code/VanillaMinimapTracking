@@ -31,8 +31,7 @@ The current category menu (managed in
 - **Target** — your current target. A separate hostile-target icon is used
   if you can't assist the target (uses `CGUnit_C::CanAssist`).
 - **Focus** — a pseudo-focus unit (vanilla 1.12.1 has no native focus). Set
-  with `MinimapBlip_SetFocus()`/`MinimapBlip_SetFocusByName(name)`. pfUI's
-  superwow integration calls these automatically.
+  with `MinimapBlip_SetFocus()`/`MinimapBlip_SetFocusByName(name)`.
 - **Auctioneer, Banker, Flight Master, Innkeeper, Repair, Trainer,
   Stable Master, Battlemaster, Vendor** — NPCs matched by their
   `m_npcFlags` field.
