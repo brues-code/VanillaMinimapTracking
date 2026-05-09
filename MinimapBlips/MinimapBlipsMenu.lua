@@ -109,7 +109,6 @@ function MinimapBlipsMenu_Toggle(anchorButton)
 		menu:Hide()
 		return
 	end
-	MinimapBlipsMenu_RefreshAll()
 	menu:ClearAllPoints()
 	menu:SetPoint("TOPRIGHT", anchorButton, "TOPLEFT", 0, -5)
 	menu:Show()
