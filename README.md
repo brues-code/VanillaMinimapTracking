@@ -76,7 +76,7 @@ via the `C_MinimapBlip` namespace and refuses to load if the DLL is missing.
 
 Functions live on the `C_MinimapBlip` namespace table (Blizzard's `C_*` style).
 Pass type names from the `Enum.MinimapBlip` table — keys are PascalCase
-(`Target`, `FlightMaster`, `StableMaster`, `OutdoorPvp`, `Mailbox`, …) and
+(`Target`, `FlightMaster`, `StableMaster`, `Battlemaster`, `Mailbox`, …) and
 values are the lowercase strings the engine actually uses. Hard-coded strings
 work too if you'd rather skip the enum.
 
