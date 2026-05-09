@@ -81,26 +81,51 @@ static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
 static std::vector<TrackedObjectData> g_trackedObjectsData;
 static BlipHoverState g_blipHoverState;
 
-static const std::unordered_map<std::string, uint32_t> g_stringToFlag = {
-    {"auctioneer", Game::UNIT_NPC_FLAG_AUCTIONEER},
-    {"banker", Game::UNIT_NPC_FLAG_BANKER},
-    {"battlemaster", Game::UNIT_NPC_FLAG_BATTLEMASTER},
-    {"flight master", Game::UNIT_NPC_FLAG_FLIGHTMASTER},
-    {"innkeeper", Game::UNIT_NPC_FLAG_INNKEEPER},
-    {"repair", Game::UNIT_NPC_FLAG_REPAIR},
-    {"stable master", Game::UNIT_NPC_FLAG_STABLEMASTER},
-    {"summoning ritual unit", Game::UNIT_NPC_FLAG_SUMMONING_RITUAL},
-    {"trainer", Game::UNIT_NPC_FLAG_TRAINER},
-    {"transmog", Game::UNIT_NPC_FLAG_TRANSMOG},
-    {"item restore", Game::UNIT_NPC_FLAG_ITEMRESTORE},
-    {"outdoor pvp", Game::UNIT_NPC_FLAG_OUTDOORPVP},
-    {"vendor", Game::UNIT_NPC_FLAG_VENDOR}};
-
-static const std::unordered_map<std::string, uint32_t> g_stringToGameObjectType = {
-    {"brainwashing", Game::GAMEOBJECT_TYPE_QUESTGIVER}, // Will be further filtered
-    {"mailbox", Game::GAMEOBJECT_TYPE_MAILBOX},
-    {"summoning ritual object", Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL},
+// Single source of truth for every tracking type. Drives:
+//   1. ApplyTrack (lookup by `typeName`, dispatch on `kind`/`engineValue`)
+//   2. The Enum.MinimapBlip Lua table (each row's `enumKey` → `typeName`)
+// Adding a new type is one row here.
+enum class BlipKind {
+    Special,    // "target" / "focus" — own per-type boolean flag
+    NpcFlag,    // unit's m_npcFlags & engineValue
+    GameObject, // gameobject's m_type == engineValue
 };
+
+struct BlipTypeDef {
+    const char *enumKey;   // PascalCase, exposed as Enum.MinimapBlip.<key>
+    const char *typeName;  // lowercase, the value addons actually pass to C_MinimapBlip.*
+    BlipKind kind;
+    uint32_t engineValue;  // unused for Special
+};
+
+static constexpr BlipTypeDef kBlipTypes[] = {
+    {"Target",                "target",                  BlipKind::Special,    0},
+    {"Focus",                 "focus",                   BlipKind::Special,    0},
+    {"Auctioneer",            "auctioneer",              BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_AUCTIONEER},
+    {"Banker",                "banker",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BANKER},
+    {"Battlemaster",          "battlemaster",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BATTLEMASTER},
+    {"FlightMaster",          "flight master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_FLIGHTMASTER},
+    {"Innkeeper",             "innkeeper",               BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_INNKEEPER},
+    {"Repair",                "repair",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_REPAIR},
+    {"StableMaster",          "stable master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER},
+    {"SummoningRitualUnit",   "summoning ritual unit",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_SUMMONING_RITUAL},
+    {"Trainer",               "trainer",                 BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER},
+    {"Transmog",              "transmog",                BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRANSMOG},
+    {"ItemRestore",           "item restore",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_ITEMRESTORE},
+    {"OutdoorPvp",            "outdoor pvp",             BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_OUTDOORPVP},
+    {"Vendor",                "vendor",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR},
+    {"Brainwashing",          "brainwashing",            BlipKind::GameObject, Game::GAMEOBJECT_TYPE_QUESTGIVER}, // additionally filtered by displayID in CheckObject
+    {"Mailbox",               "mailbox",                 BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX},
+    {"SummoningRitualObject", "summoning ritual object", BlipKind::GameObject, Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL},
+};
+
+static const BlipTypeDef *FindBlipType(const std::string &typeName) {
+    for (const auto &d : kBlipTypes) {
+        if (typeName == d.typeName)
+            return &d;
+    }
+    return nullptr;
+}
 
 static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, uint64_t guid,
                         Blip blip) {
@@ -622,16 +647,26 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
             g_enabledTypes.erase(typeName);
     };
 
-    if (typeName == "target") {
-        if (enabled == g_targetTracking)
+    const BlipTypeDef *def = FindBlipType(typeName);
+    if (def == nullptr)
+        return ApplyResult::UnknownType;
+
+    auto needIcon = [&]() -> const Blip * {
+        const auto it = g_registeredIcons.find(typeName);
+        return (it == g_registeredIcons.end()) ? nullptr : &it->second;
+    };
+
+    if (def->kind == BlipKind::Special) {
+        bool *flag = (typeName == "target") ? &g_targetTracking : &g_focusTracking;
+        if (enabled == *flag)
             return ApplyResult::NoChange;
         if (enabled) {
-            if (g_registeredIcons.find("target") == g_registeredIcons.end())
+            if (needIcon() == nullptr)
                 return ApplyResult::IconMissing;
-            g_targetTracking = true;
+            *flag = true;
             InstallHooks();
         } else {
-            g_targetTracking = false;
+            *flag = false;
             if (!IsAnyTrackingActive())
                 UninstallHooks();
         }
@@ -639,66 +674,24 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         return ApplyResult::Applied;
     }
 
-    if (typeName == "focus") {
-        if (enabled == g_focusTracking)
-            return ApplyResult::NoChange;
-        if (enabled) {
-            if (g_registeredIcons.find("focus") == g_registeredIcons.end())
-                return ApplyResult::IconMissing;
-            g_focusTracking = true;
-            InstallHooks();
-        } else {
-            g_focusTracking = false;
-            if (!IsAnyTrackingActive())
-                UninstallHooks();
-        }
-        recordEnabled(enabled);
-        return ApplyResult::Applied;
+    auto &tracked = (def->kind == BlipKind::NpcFlag) ? g_trackedUnitFlagsBlips
+                                                      : g_trackedGameObjectTypesBlips;
+    const bool currently = tracked.find(def->engineValue) != tracked.end();
+    if (enabled == currently)
+        return ApplyResult::NoChange;
+    if (enabled) {
+        const Blip *icon = needIcon();
+        if (icon == nullptr)
+            return ApplyResult::IconMissing;
+        InstallHooks();
+        tracked[def->engineValue] = *icon;
+    } else {
+        tracked.erase(def->engineValue);
+        if (!IsAnyTrackingActive())
+            UninstallHooks();
     }
-
-    const auto itFlag = g_stringToFlag.find(typeName);
-    if (itFlag != g_stringToFlag.end()) {
-        const bool currently = g_trackedUnitFlagsBlips.find(itFlag->second) !=
-                               g_trackedUnitFlagsBlips.end();
-        if (enabled == currently)
-            return ApplyResult::NoChange;
-        if (enabled) {
-            const auto iconIt = g_registeredIcons.find(typeName);
-            if (iconIt == g_registeredIcons.end())
-                return ApplyResult::IconMissing;
-            InstallHooks();
-            g_trackedUnitFlagsBlips[itFlag->second] = iconIt->second;
-        } else {
-            g_trackedUnitFlagsBlips.erase(itFlag->second);
-            if (!IsAnyTrackingActive())
-                UninstallHooks();
-        }
-        recordEnabled(enabled);
-        return ApplyResult::Applied;
-    }
-
-    const auto itType = g_stringToGameObjectType.find(typeName);
-    if (itType != g_stringToGameObjectType.end()) {
-        const bool currently = g_trackedGameObjectTypesBlips.find(itType->second) !=
-                               g_trackedGameObjectTypesBlips.end();
-        if (enabled == currently)
-            return ApplyResult::NoChange;
-        if (enabled) {
-            const auto iconIt = g_registeredIcons.find(typeName);
-            if (iconIt == g_registeredIcons.end())
-                return ApplyResult::IconMissing;
-            InstallHooks();
-            g_trackedGameObjectTypesBlips[itType->second] = iconIt->second;
-        } else {
-            g_trackedGameObjectTypesBlips.erase(itType->second);
-            if (!IsAnyTrackingActive())
-                UninstallHooks();
-        }
-        recordEnabled(enabled);
-        return ApplyResult::Applied;
-    }
-
-    return ApplyResult::UnknownType;
+    recordEnabled(enabled);
+    return ApplyResult::Applied;
 }
 
 static void EnsureParentDir(const std::string &filePath) {
@@ -935,6 +928,12 @@ void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);
     Game::Lua::RegisterTableFunction(NS, "SetFocusByName", &Script_MinimapBlip_SetFocusByName);
     Game::Lua::RegisterTableFunction(NS, "ClearFocus", &Script_MinimapBlip_ClearFocus);
+
+    constexpr int kBlipTypeCount = static_cast<int>(sizeof(kBlipTypes) / sizeof(kBlipTypes[0]));
+    Game::Lua::EnumEntry enumEntries[kBlipTypeCount];
+    for (int i = 0; i < kBlipTypeCount; i++)
+        enumEntries[i] = {kBlipTypes[i].enumKey, kBlipTypes[i].typeName};
+    Game::Lua::RegisterStringEnum("Enum", "MinimapBlip", enumEntries, kBlipTypeCount);
 
     // Seed the custom-event cache so an actual claim happens later (from the
     // FrameRegisterEvent hook the first time Lua listens). Writes are

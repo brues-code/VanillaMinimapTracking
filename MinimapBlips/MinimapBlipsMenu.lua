@@ -5,26 +5,27 @@ local BLIP_SCALE_TRACKING = 1.5
 
 local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
 
-local BLIP_TYPES = {
-	{ type = "target",                  label = TARGET,              icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
-	{ type = "focus",                   label = FOCUS,               icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
-	{ type = "auctioneer",              label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
-	{ type = "banker",                  label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
-	{ type = "flight master",           label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "innkeeper",               label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
-	{ type = "repair",                  label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
-	{ type = "trainer",                 label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
-	{ type = "stable master",           label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "battlemaster",            label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = "vendor",                  label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
-	{ type = "mailbox",                 label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
-	-- { type = "transmog",                label = "Transmog",            icon = Icon("Transmogrifier"),                  scale = BLIP_SCALE_TRACKING },
-	-- { type = "item restore",            label = "Item Restore",        icon = "Interface\\Icons\\INV_Misc_Bag_07",                    scale = BLIP_SCALE_TRACKING },
-	-- { type = "outdoor pvp",             label = "Outdoor PvP",         icon = "Interface\\Icons\\Achievement_PVP_A_01",               scale = BLIP_SCALE_TRACKING },
-	-- { type = "summoning ritual unit",   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
-	-- { type = "summoning ritual object", label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
-	-- { type = "brainwashing",            label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate",    scale = BLIP_SCALE },
-}
+local E = Enum and Enum.MinimapBlip
+local BLIP_TYPES = E and {
+	{ type = E.Target,                label = TARGET,                icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Focus,                 label = FOCUS,                 icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
+	{ type = E.Auctioneer,            label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
+	{ type = E.Banker,                label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
+	{ type = E.FlightMaster,          label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Innkeeper,             label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
+	{ type = E.Repair,                label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
+	{ type = E.Trainer,               label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
+	{ type = E.StableMaster,          label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Battlemaster,          label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Vendor,                label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
+	{ type = E.Mailbox,               label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
+	-- { type = E.Transmog,              label = "Transmog",            icon = Icon("Transmogrifier"),                  scale = BLIP_SCALE_TRACKING },
+	-- { type = E.ItemRestore,           label = "Item Restore",        icon = "Interface\\Icons\\INV_Misc_Bag_07",                    scale = BLIP_SCALE_TRACKING },
+	-- { type = E.OutdoorPvp,            label = "Outdoor PvP",         icon = "Interface\\Icons\\Achievement_PVP_A_01",               scale = BLIP_SCALE_TRACKING },
+	-- { type = E.SummoningRitualUnit,   label = "Ritual Unit",         icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = E.SummoningRitualObject, label = "Ritual Object",       icon = "Interface\\Icons\\Spell_Shadow_SummonFelhunter",       scale = BLIP_SCALE },
+	-- { type = E.Brainwashing,          label = "Brainwashing Device", icon = "Interface\\Icons\\spell_shadow_shadowworddominate",    scale = BLIP_SCALE },
+} or {}
 
 local ROW_HEIGHT = 18
 local ROW_WIDTH  = 140

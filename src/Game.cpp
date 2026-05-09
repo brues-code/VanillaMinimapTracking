@@ -63,6 +63,37 @@ void RegisterTableFunction(const char *tableName, const char *methodName,
     SetTable(L, -3);              // tbl[methodName] = closure; pops k+v. [tbl]
     SetTop(L, -2);                // pop tbl. []
 }
+
+void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *entries,
+                        int count) {
+    void *L = State();
+    if (L == nullptr)
+        return;
+
+    // Ensure _G[parent] exists as a table.
+    PushString(L, parent);
+    GetTable(L, GLOBALS_INDEX);
+    const bool parentExists = (Type(L, -1) == 5);
+    SetTop(L, -2);
+    if (!parentExists) {
+        PushString(L, parent);
+        NewTable(L);
+        SetTable(L, GLOBALS_INDEX);
+    }
+
+    // _G[parent][sub] = { ...entries }
+    PushString(L, parent);
+    GetTable(L, GLOBALS_INDEX);   // [parentTbl]
+    PushString(L, sub);            // [parentTbl, subName]
+    NewTable(L);                   // [parentTbl, subName, subTbl]
+    for (int i = 0; i < count; i++) {
+        PushString(L, entries[i].key);
+        PushString(L, entries[i].value);
+        SetTable(L, -3);            // subTbl[key] = value
+    }
+    SetTable(L, -3);                // parentTbl[sub] = subTbl
+    SetTop(L, -2);                  // pop parentTbl
+}
 } // namespace Lua
 
 const FrameScript_RegisterFunction_t FrameScript_RegisterFunction =

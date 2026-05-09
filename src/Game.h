@@ -416,6 +416,20 @@ void *State();
 // APIs (e.g. `C_MinimapBlip.RegisterIcons`) instead of flat globals.
 void RegisterTableFunction(const char *tableName, const char *methodName,
                            int(__fastcall *func)(void *L));
+
+// Key/value pair for `RegisterStringEnum`. `key` becomes a field name
+// (PascalCase) and `value` is the string the engine actually uses.
+struct EnumEntry {
+    const char *key;
+    const char *value;
+};
+
+// Registers `_G[parent][sub] = { entries }` as a string-valued enum table,
+// creating `_G[parent]` if needed. Lets us expose Blizzard-style
+// `Enum.MinimapBlip.FlightMaster = "flight master"`-shaped tables instead
+// of a pile of magic strings in addon code.
+void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *entries,
+                        int count);
 } // namespace Lua
 
 using FrameScript_RegisterFunction_t = void(__fastcall *)(const char *name, uintptr_t func);

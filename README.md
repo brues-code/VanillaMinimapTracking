@@ -75,8 +75,10 @@ via the `C_MinimapBlip` namespace and refuses to load if the DLL is missing.
 ## Lua API
 
 Functions live on the `C_MinimapBlip` namespace table (Blizzard's `C_*` style).
-All take **lowercase** type names (`"target"`, `"flight master"`, `"mailbox"`,
-etc.).
+Pass type names from the `Enum.MinimapBlip` table — keys are PascalCase
+(`Target`, `FlightMaster`, `StableMaster`, `OutdoorPvp`, `Mailbox`, …) and
+values are the lowercase strings the engine actually uses. Hard-coded strings
+work too if you'd rather skip the enum.
 
 | Function                                                              | Returns             | Notes                                                                       |
 |-----------------------------------------------------------------------|---------------------|-----------------------------------------------------------------------------|
