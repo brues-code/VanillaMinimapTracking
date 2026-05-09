@@ -90,7 +90,7 @@ work too if you'd rather skip the enum.
 | `C_MinimapBlip.IsTracked(type)`                                        | `1` or `nil`        | `if C_MinimapBlip.IsTracked(t) then ... end`.                               |
 | `C_MinimapBlip.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
 | `C_MinimapBlip.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
-| `C_MinimapBlip.SetFocus()`                                             | —                   | Captures the current target as the focus unit.                              |
+| `C_MinimapBlip.SetFocus([unit])`                                       | —                   | Pins `unit` (a unit ID like `"target"`/`"party1"`) as focus. Defaults to `"target"`. Errors if not found. |
 | `C_MinimapBlip.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
 | `C_MinimapBlip.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
 

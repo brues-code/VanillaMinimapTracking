@@ -944,10 +944,15 @@ static bool EnsureConfigLoaded() {
     return true;
 }
 
+// Resolves `unit` (a unit ID like "target"/"party1", or a unit name) and
+// pins it as the focus. With no argument, defaults to "target".
 static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
-    const uint64_t guid = Game::GetGUIDFromName("target");
+    const char *unit = "target";
+    if (Game::Lua::IsString(L, 1))
+        unit = Game::Lua::ToString(L, 1);
+    const uint64_t guid = Game::GetGUIDFromName(unit);
     if (guid == 0) {
-        Game::Lua::Error(L, "No target to set as focus.");
+        Game::Lua::Error(L, "No unit to set as focus.");
         return 0;
     }
     g_focusGUID = guid;
