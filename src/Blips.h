@@ -13,7 +13,6 @@
 
 namespace Blips {
 
-void RegisterLuaFunctions();
 void Save();
 void Reset();
 

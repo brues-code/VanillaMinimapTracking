@@ -17,6 +17,32 @@
 
 namespace Game {
 
+// Reads `*(uint8_t**)(ptr + offset)` after null-checking `ptr`. Cleaner than
+// repeating `reinterpret_cast<T*const*>(p + N)` chains when walking through
+// optional pointers like the in-memory creature cache.
+inline const uint8_t *SafeDeref(const uint8_t *ptr, size_t offset) {
+    if (ptr == nullptr)
+        return nullptr;
+    return *reinterpret_cast<const uint8_t *const *>(ptr + offset);
+}
+
+// File-scope-static glue that lets each module self-register its Lua bindings
+// without DllMain having to know it exists. Construct one at namespace scope
+// with the module's registration function — the constructor links it onto a
+// global list that `RunModuleRegistrations()` walks once Lua is ready.
+struct ModuleAutoRegister {
+    using Fn = void (*)();
+    explicit ModuleAutoRegister(Fn fn);
+
+    Fn fn;
+    ModuleAutoRegister *next;
+};
+
+// Walks the `ModuleAutoRegister` list, invoking each registered function.
+// Called from the `LoadScriptFunctions` hook so registrations happen after
+// the engine's own boot-time Lua setup.
+void RunModuleRegistrations();
+
 struct HTEXTURE__; // Don't know real struct
 struct CGxTex;     // Don't know real struct
 struct CWorld;     // Don't know real struct
@@ -369,6 +395,21 @@ namespace Lua {
 // Lua 5.0 pseudo-index for the globals table.
 constexpr int GLOBALS_INDEX = -10001;
 
+// `lua_type` return codes. Used in place of magic numbers when checking
+// stack value kinds.
+constexpr int TYPE_NIL = 0;
+constexpr int TYPE_BOOLEAN = 1;
+constexpr int TYPE_LIGHTUSERDATA = 2;
+constexpr int TYPE_NUMBER = 3;
+constexpr int TYPE_STRING = 4;
+constexpr int TYPE_TABLE = 5;
+constexpr int TYPE_FUNCTION = 6;
+
+// Calling convention used by every C-implemented Lua function the engine
+// calls into. Same signature on every entry point — having a typedef stops
+// the ugly `int(__fastcall *)(void *L)` parameter type from repeating.
+using CFunction = int(__fastcall *)(void *L);
+
 using lua_pushnil_t = void(__fastcall *)(void *L);
 using lua_isnumber_t = bool(__fastcall *)(void *L, int index);
 using lua_tonumber_t = double(__fastcall *)(void *L, int index);
@@ -376,7 +417,7 @@ using lua_pushnumber_t = void(__fastcall *)(void *L, double value);
 using lua_isstring_t = bool(__fastcall *)(void *L, int index);
 using lua_tostring_t = const char *(__fastcall *)(void *L, int index);
 using lua_pushstring_t = void(__fastcall *)(void *L, const char *);
-using lua_pushcclosure_t = void(__fastcall *)(void *L, int(__fastcall *fn)(void *L), int upvals);
+using lua_pushcclosure_t = void(__fastcall *)(void *L, CFunction fn, int upvals);
 using lua_gettable_t = void(__fastcall *)(void *L, int index);
 using lua_settable_t = void(__fastcall *)(void *L, int index);
 using lua_newtable_t = void(__fastcall *)(void *L);
@@ -401,7 +442,7 @@ extern const lua_next_t Next;
 extern const lua_settop_t SetTop;
 extern const lua_error_t Error;
 
-inline bool IsTable(void *L, int index) { return Type(L, index) == 5; }
+inline bool IsTable(void *L, int index) { return Type(L, index) == TYPE_TABLE; }
 inline void Pop(void *L, int index) { SetTop(L, -(index)-1); }
 
 // Returns the engine's lua_State *, read on demand from the engine global.
@@ -411,8 +452,7 @@ void *State();
 // Registers `func` at `_G[tableName][methodName]`, creating the namespace
 // table if it doesn't already exist. Lets us expose Blizzard-style C_*
 // APIs (e.g. `C_MinimapBlip.RegisterIcons`) instead of flat globals.
-void RegisterTableFunction(const char *tableName, const char *methodName,
-                           int(__fastcall *func)(void *L));
+void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func);
 
 // Key/value pair for `RegisterStringEnum`. `key` becomes a field name
 // (PascalCase) and `value` is the string the engine actually uses.

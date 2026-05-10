@@ -16,6 +16,23 @@
 
 namespace Game {
 
+namespace {
+// Singly-linked list of pending module registrations. Each
+// `ModuleAutoRegister` static instance prepends itself here at DLL load
+// time; `RunModuleRegistrations()` walks the list once Lua is ready.
+ModuleAutoRegister *g_moduleHead = nullptr;
+} // namespace
+
+ModuleAutoRegister::ModuleAutoRegister(Fn f) : fn(f), next(g_moduleHead) {
+    g_moduleHead = this;
+}
+
+void RunModuleRegistrations() {
+    for (auto *node = g_moduleHead; node != nullptr; node = node->next) {
+        node->fn();
+    }
+}
+
 namespace Lua {
 const lua_pushnil_t PushNil = reinterpret_cast<lua_pushnil_t>(Offsets::LUA_PUSH_NIL);
 const lua_isnumber_t IsNumber = reinterpret_cast<lua_isnumber_t>(Offsets::LUA_IS_NUMBER);
@@ -38,8 +55,7 @@ void *State() {
     return *reinterpret_cast<void **>(static_cast<uintptr_t>(Offsets::VAR_LUA_STATE));
 }
 
-void RegisterTableFunction(const char *tableName, const char *methodName,
-                           int(__fastcall *func)(void *L)) {
+void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func) {
     void *L = State();
     if (L == nullptr)
         return;
@@ -47,8 +63,8 @@ void RegisterTableFunction(const char *tableName, const char *methodName,
     // If _G[tableName] doesn't already exist as a table, create it.
     PushString(L, tableName);
     GetTable(L, GLOBALS_INDEX);
-    const bool alreadyExists = (Type(L, -1) == 5); // 5 == LUA_TTABLE
-    SetTop(L, -2);                                 // pop the lookup result
+    const bool alreadyExists = (Type(L, -1) == TYPE_TABLE);
+    SetTop(L, -2); // pop the lookup result
     if (!alreadyExists) {
         PushString(L, tableName);
         NewTable(L);
@@ -73,7 +89,7 @@ void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *en
     // Ensure _G[parent] exists as a table.
     PushString(L, parent);
     GetTable(L, GLOBALS_INDEX);
-    const bool parentExists = (Type(L, -1) == 5);
+    const bool parentExists = (Type(L, -1) == TYPE_TABLE);
     SetTop(L, -2);
     if (!parentExists) {
         PushString(L, parent);

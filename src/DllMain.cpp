@@ -35,7 +35,9 @@ static bool __fastcall FrameScript_Initialize_h() {
 
 static void __fastcall LoadScriptFunctions_h() {
     LoadScriptFunctions_o();
-    Blips::RegisterLuaFunctions();
+    // Each module self-registers via a `Game::ModuleAutoRegister` static at
+    // file scope; we just walk the list here.
+    Game::RunModuleRegistrations();
     // Now that the engine has finished its own boot-time RegisterEvent
     // calls, it's safe for our writes to land in the event table.
     Event::Custom::EnableWrites();

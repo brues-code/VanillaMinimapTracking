@@ -156,13 +156,13 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
 
     std::string subName;
     if (objectptr->m_objectType == Game::OBJECT_TYPE::UNIT) {
-        const auto *cacheRow = *reinterpret_cast<const char *const *>(
-            reinterpret_cast<const uint8_t *>(objectptr) + 0xB30);
-        if (cacheRow != nullptr) {
-            const char *raw = *reinterpret_cast<const char *const *>(cacheRow + 0x10);
-            if (raw != nullptr && raw[0] != '\0')
-                subName = raw;
-        }
+        // Walk unit → creature-cache row → subname string. Either hop can be
+        // NULL (uncached / unnamed); SafeDeref short-circuits if so.
+        const auto *unitBytes = reinterpret_cast<const uint8_t *>(objectptr);
+        const auto *cacheRow = Game::SafeDeref(unitBytes, 0xB30);
+        const auto *raw = reinterpret_cast<const char *>(Game::SafeDeref(cacheRow, 0x10));
+        if (raw != nullptr && raw[0] != '\0')
+            subName = raw;
     }
 
     g_trackedObjectsData.push_back(
@@ -976,7 +976,7 @@ static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
     return 0;
 }
 
-void RegisterLuaFunctions() {
+static void RegisterLuaFunctions() {
     constexpr const char *NS = "C_MinimapBlip";
     Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
     Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
@@ -1003,6 +1003,11 @@ void RegisterLuaFunctions() {
     // disabled at this point so the slot index will be -1 until then.
     Event::Custom::Register(kTrackingChangedEvent);
 }
+
+// Self-register with the module list so `Game::RunModuleRegistrations()`
+// (invoked from the `LoadScriptFunctions` hook in DllMain) picks us up
+// without DllMain having to know about Blips specifically.
+static const Game::ModuleAutoRegister kBlipsAutoRegister{&RegisterLuaFunctions};
 
 void Reset() {
     g_registeredIcons.clear();
