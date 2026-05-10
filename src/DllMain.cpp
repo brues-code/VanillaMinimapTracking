@@ -21,13 +21,19 @@
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
 static Game::LoadScriptFunctions_t LoadScriptFunctions_o = nullptr;
 static Game::CGGameUI_Shutdown_t CGGameUI_Shutdown_o = nullptr;
-static Game::FrameRegisterEvent_t FrameRegisterEvent_o = nullptr;
+
+// `Frame::RegisterEvent` is `__thiscall(this, eventName)`. MSVC can't emit
+// __thiscall on free functions, but a __fastcall with a dummy EDX arg
+// matches the register layout (ECX=this, EDX unused, stack=name).
+using FrameRegisterEvent_t = void(__fastcall *)(void *frame, void *edx,
+                                                 const char *eventName);
+static FrameRegisterEvent_t FrameRegisterEvent_o = nullptr;
 
 static void __fastcall InvalidFunctionPtrCheck_h() {}
 
 static bool __fastcall FrameScript_Initialize_h() {
-    // Invalidate cached event-slot indices BEFORE the engine tears down its
-    // event table — the table is rebuilt at a fresh address afterwards.
+    // Invalidate cached slot indices BEFORE the engine tears down the
+    // event table — the table is rebuilt at a fresh allocation.
     Event::Custom::PrepareForReload();
     FrameScript_Initialize_o();
     return true;
@@ -38,17 +44,19 @@ static void __fastcall LoadScriptFunctions_h() {
     // Each module self-registers via a `Game::ModuleAutoRegister` static at
     // file scope; we just walk the list here.
     Game::RunModuleRegistrations();
-    // Now that the engine has finished its own boot-time RegisterEvent
-    // calls, it's safe for our writes to land in the event table.
+    // Permit writes from this point on. Earlier writes can race with
+    // the engine's table init and crash in `SMemFree`.
     Event::Custom::EnableWrites();
 }
 
-static void __fastcall FrameRegisterEvent_h(void *frame, void *edx, const char *eventName) {
-    // Every Lua-side `frame:RegisterEvent(...)` is a chance to claim any
-    // custom event slots we couldn't grab at LoadScriptFunctions time —
-    // the engine's strcmp scan is about to run, so we need the slot named
-    // before it walks the table.
-    Event::Custom::RetryAll();
+// Every Lua-side `frame:RegisterEvent(...)` is a chance to claim a
+// slot for any unclaimed custom event. By this point the engine's
+// table is fully populated and other DLLs' post-rebuild writes are
+// done, so the table is settled and our backwards walk finds genuine
+// NULL slots near the tail.
+static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
+                                            const char *eventName) {
+    Event::Custom::RetryClaims();
     FrameRegisterEvent_o(frame, edx, eventName);
 }
 

@@ -740,9 +740,10 @@ void Save() {
 }
 
 static const char *const kTrackingChangedEvent = "MINIMAP_BLIP_TRACKING_CHANGED";
+static const Event::Custom::AutoReserve _reserveTrackingChanged{kTrackingChangedEvent};
 
 static void FireTrackingChanged(const std::string &typeName, bool enabled) {
-    const int eventID = Event::Custom::Register(kTrackingChangedEvent);
+    const int eventID = Event::Custom::Lookup(kTrackingChangedEvent);
     Event::Custom::Fire_SD(eventID, typeName.c_str(), enabled ? 1 : 0);
 }
 static const char *ReadActiveAccountName();
@@ -997,11 +998,8 @@ static void RegisterLuaFunctions() {
     for (int i = 0; i < kBlipTypeCount; i++)
         enumEntries[i] = {kBlipTypes[i].enumKey, kBlipTypes[i].typeName};
     Game::Lua::RegisterStringEnum("Enum", "MinimapBlip", enumEntries, kBlipTypeCount);
-
-    // Seed the custom-event cache so an actual claim happens later (from the
-    // FrameRegisterEvent hook the first time Lua listens). Writes are
-    // disabled at this point so the slot index will be -1 until then.
-    Event::Custom::Register(kTrackingChangedEvent);
+    // Event name is reserved at file scope via `AutoReserve`; the
+    // `RebuildEventTable` hook injects it into the engine's input array.
 }
 
 // Self-register with the module list so `Game::RunModuleRegistrations()`

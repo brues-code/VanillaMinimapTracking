@@ -46,12 +46,14 @@ enum Offsets {
     // format string, dispatching arg1, arg2, ... to all frames that have
     // registered the event by name.
     FUN_FIRE_EVENT = 0x00703F50,
-    // Frame::RegisterEvent(name) — used as a hook point to retry custom
-    // event-table slot claims after the engine has rebuilt its table.
+    // `Frame::RegisterEvent(name)` — hook point so `Event::Custom::RetryClaims`
+    // can grab table slots once Lua starts listening to events.
     FUN_FRAME_REGISTER_EVENT = 0x00702140,
-    // Storm SMemAlloc — used to allocate event-name strings the engine
-    // expects to free via SMemFree during reload teardown.
-    FUN_STORM_SMEM_ALLOC = 0x006462E0,
+    // Storm SStrDup — `__stdcall char *(const char *src, file, line)`.
+    // Wraps `SMemAlloc`, which the engine's reload teardown's `SMemFree`
+    // validates against; using it for our event-name copies keeps the
+    // teardown safe.
+    FUN_STORM_SSTRDUP = 0x0064A620,
 
     LUA_PUSH_NIL = 0x6F37F0,
     LUA_IS_NUMBER = 0x6F34D0,

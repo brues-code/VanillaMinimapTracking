@@ -22,37 +22,27 @@ namespace Event::Custom {
 
 namespace {
 
-// Cache keyed by eventName pointer (callers always pass a static literal,
-// so pointer equality is a valid identity check). A failed claim caches
-// `slot = -1`; subsequent `Register`/`RetryAll` retries until it succeeds.
-struct CacheEntry {
+constexpr int MAX_RESERVED = 8;
+struct ReservedName {
     const char *name;
-    int slot;
+    int slot;  // -1 until claimed
 };
-constexpr int MAX_CACHE = 8;
-CacheEntry g_cache[MAX_CACHE];
-int g_cacheCount = 0;
+ReservedName g_reserved[MAX_RESERVED];
+int g_reservedCount = 0;
 bool g_writesEnabled = false;
 
-// Storm-allocate a copy of `s`. The engine's event table treats every
-// `entry.name` as a Storm-owned pointer — its reload teardown loop calls
-// `SMemFree(entry.name)` and validates the block came from `SMemAlloc`.
-// Static literals in the DLL would crash that free, so we must hand it a
-// real Storm allocation.
-char *AllocStormCopy(const char *s) {
+char *SStrDup(const char *s) {
     if (s == nullptr)
         return nullptr;
-    using SMemAlloc_t = void *(__stdcall *)(size_t size, const char *file,
-                                            int line, int flags);
-    auto fn = reinterpret_cast<SMemAlloc_t>(Offsets::FUN_STORM_SMEM_ALLOC);
-    const size_t len = std::strlen(s);
-    char *buf = static_cast<char *>(fn(len + 1, __FILE__, __LINE__, 0));
-    if (buf == nullptr)
-        return nullptr;
-    std::memcpy(buf, s, len + 1);
-    return buf;
+    using SStrDup_t = char *(__stdcall *)(const char *src, const char *file,
+                                          int line);
+    auto fn = reinterpret_cast<SStrDup_t>(Offsets::FUN_STORM_SSTRDUP);
+    return fn(s, __FILE__, __LINE__);
 }
 
+// Walk the event table from the END so our event lands at a high slot —
+// keeps custom events grouped at the tail, out of the engine's
+// hardcoded slot-write range (549..699).
 int TryClaim(const char *eventName) {
     if (!g_writesEnabled)
         return -1;
@@ -60,14 +50,15 @@ int TryClaim(const char *eventName) {
     const int count = *reinterpret_cast<int *>(Offsets::VAR_EVENT_TABLE_COUNT);
     if (base == nullptr || count <= 0)
         return -1;
-    for (int i = 0; i < count; i++) {
+    for (int i = count - 1; i >= 0; --i) {
         auto **namePtr = reinterpret_cast<const char **>(
-            base + i * Offsets::EVENT_ENTRY_STRIDE + Offsets::OFF_EVENT_ENTRY_NAME);
+            base + i * Offsets::EVENT_ENTRY_STRIDE +
+            Offsets::OFF_EVENT_ENTRY_NAME);
         if (*namePtr == nullptr) {
-            char *stormName = AllocStormCopy(eventName);
-            if (stormName == nullptr)
+            char *copy = SStrDup(eventName);
+            if (copy == nullptr)
                 return -1;
-            *namePtr = stormName;
+            *namePtr = copy;
             return i;
         }
     }
@@ -76,35 +67,40 @@ int TryClaim(const char *eventName) {
 
 } // namespace
 
-int Register(const char *eventName) {
-    if (eventName == nullptr)
-        return -1;
-    for (int i = 0; i < g_cacheCount; i++) {
-        if (g_cache[i].name == eventName) {
-            if (g_cache[i].slot < 0)
-                g_cache[i].slot = TryClaim(eventName);
-            return g_cache[i].slot;
-        }
+AutoReserve::AutoReserve(const char *name) {
+    if (name == nullptr || g_reservedCount >= MAX_RESERVED)
+        return;
+    for (int i = 0; i < g_reservedCount; ++i) {
+        if (std::strcmp(g_reserved[i].name, name) == 0)
+            return;
     }
-    if (g_cacheCount >= MAX_CACHE)
-        return -1;
-    g_cache[g_cacheCount].name = eventName;
-    g_cache[g_cacheCount].slot = TryClaim(eventName);
-    return g_cache[g_cacheCount++].slot;
+    g_reserved[g_reservedCount].name = name;
+    g_reserved[g_reservedCount].slot = -1;
+    ++g_reservedCount;
 }
 
-void RetryAll() {
-    for (int i = 0; i < g_cacheCount; i++) {
-        if (g_cache[i].slot < 0)
-            g_cache[i].slot = TryClaim(g_cache[i].name);
+int Lookup(const char *name) {
+    if (name == nullptr)
+        return -1;
+    for (int i = 0; i < g_reservedCount; ++i) {
+        if (std::strcmp(g_reserved[i].name, name) == 0)
+            return g_reserved[i].slot;
+    }
+    return -1;
+}
+
+void RetryClaims() {
+    for (int i = 0; i < g_reservedCount; ++i) {
+        if (g_reserved[i].slot < 0)
+            g_reserved[i].slot = TryClaim(g_reserved[i].name);
     }
 }
 
 void EnableWrites() { g_writesEnabled = true; }
 
 void PrepareForReload() {
-    for (int i = 0; i < g_cacheCount; i++)
-        g_cache[i].slot = -1;
+    for (int i = 0; i < g_reservedCount; ++i)
+        g_reserved[i].slot = -1;
     g_writesEnabled = false;
 }
 
