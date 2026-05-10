@@ -55,13 +55,6 @@ cmake --build build --config Release
 `-A Win32` is mandatory — WoW 1.12.1 is a 32-bit process. Output is
 `build\Release\VanillaMinimapTracking.dll`.
 
-To produce a tagged release build with a baked-in version value:
-
-```powershell
-cmake -B build -A Win32 -DVANILLAMINIMAPTRACKING_TAG=v1.2.3
-cmake --build build --config Release
-```
-
 ## Install
 
 1. **DLL:** drop `build\Release\VanillaMinimapTracking.dll` into the folder
