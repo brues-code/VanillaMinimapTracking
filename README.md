@@ -17,10 +17,12 @@ a small button next to the minimap.
   <character>\VanillaMinimapTracking.txt` on first API call after login,
   flushed back on UI shutdown — same convention as `AddOns.txt`) and
   exposes a small Lua API + a custom `MINIMAP_BLIP_TRACKING_CHANGED` event.
-- **`MinimapBlips/`** — a companion WoW addon that puts the toggle button on
-  the minimap and renders the category menu. It's a thin UI on top of the
-  DLL's Lua API — no `SavedVariables`, no path knowledge. Without the DLL
-  loaded, the addon shows a chat warning and does nothing.
+- **`MinimapBlips/`** — a companion WoW addon that ships the blip artwork
+  (in `MinimapBlips/icons/`), registers it with the DLL on load, draws the
+  toggle button next to the minimap, and renders the category menu. It's a
+  thin UI on top of the DLL's Lua API — no `SavedVariables`, no path
+  knowledge, no tracking state of its own. Without the DLL loaded, the
+  addon shows a chat warning and does nothing.
 
 ## Categories
 
