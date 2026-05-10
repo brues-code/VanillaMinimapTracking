@@ -42,11 +42,11 @@ get a target/focus blip placed on you.
 
 ## Build
 
-Requirements: Windows, MSVC (Visual Studio 2019+ Build Tools), CMake 3.10+,
-Git.
+Install [Visual Studio Build Tools 2019+](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and check **"Desktop development with C++"** in the installer. That workload bundles CMake (via the "C++ CMake tools for Windows" component), so no separate CMake install is needed.
+
+Run the build commands from a **Developer PowerShell for VS** (Start menu → "Developer PowerShell"), so `cmake` and the MSVC toolchain are on PATH.
 
 ```powershell
-cd C:\Git\VanillaMinimapTracking
 git submodule update --init --recursive
 cmake -B build -A Win32
 cmake --build build --config Release
