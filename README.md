@@ -16,7 +16,7 @@ a small button next to the minimap.
   per-character config (lazy-loaded from `WTF\Account\<account>\<realm>\
   <character>\VanillaMinimapTracking.txt` on first API call after login,
   flushed back on UI shutdown — same convention as `AddOns.txt`) and
-  exposes a small Lua API + a custom `MINIMAP_BLIP_TRACKING_CHANGED` event.
+  exposes a small Lua API + a custom `MINIMAP_UPDATE_TRACKING` event.
 - **`MinimapBlips/`** — a companion WoW addon that ships the blip artwork
   (in `MinimapBlips/icons/`), registers it with the DLL on load, draws the
   toggle button next to the minimap, and renders the category menu. It's a
@@ -94,7 +94,7 @@ To detect whether the DLL is loaded, just check the namespace:
 `if C_MinimapBlip then ... end`.
 
 A real WoW event fires whenever tracking state changes — register it with
-`frame:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")` and dispatch from the
+`frame:RegisterEvent("MINIMAP_UPDATE_TRACKING")` and dispatch from the
 addon's `OnEvent` like any built-in event. Args: `arg1` = type name, `arg2`
 = `1` (enabled) or `0` (disabled).
 
@@ -107,6 +107,6 @@ Per-character path resolution uses three engine session globals
 (`0x00BE1C0C`, `0x00C28130+0x20`, `0x00C27D88`) — the same trio WoW itself
 reads to write `AddOns.txt` and other per-character WTF files (see
 [ClassicAPI/docs/SessionGlobals.md](https://github.com/brues-code/ClassicAPI/blob/main/docs/SessionGlobals.md)).
-The custom `MINIMAP_BLIP_TRACKING_CHANGED` event is dispatched via the
+The custom `MINIMAP_UPDATE_TRACKING` event is dispatched via the
 engine's own event table by claiming an unused slot — addons listen for it
 exactly the same way they would for a built-in event.

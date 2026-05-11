@@ -739,7 +739,7 @@ void Save() {
         file << name << "\n";
 }
 
-static const char *const kTrackingChangedEvent = "MINIMAP_BLIP_TRACKING_CHANGED";
+static const char *const kTrackingChangedEvent = "MINIMAP_UPDATE_TRACKING";
 static const Event::Custom::AutoReserve _reserveTrackingChanged{kTrackingChangedEvent};
 
 static void FireTrackingChanged(const std::string &typeName, bool enabled) {

@@ -79,7 +79,7 @@ local function GenerateRows()
 		end)
 
 		row:SetScript("OnEvent", function()
-			if event == "MINIMAP_BLIP_TRACKING_CHANGED" then
+			if event == "MINIMAP_UPDATE_TRACKING" then
 				if this.blipType == arg1 then
 					if arg2 == 1 then
 						this.check:Show()
@@ -89,7 +89,7 @@ local function GenerateRows()
 				end
 			end
 		end)
-		row:RegisterEvent("MINIMAP_BLIP_TRACKING_CHANGED")
+		row:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 	end
 	menu.rows = true
 end

@@ -42,7 +42,7 @@ struct AutoReserve {
 int Lookup(const char *name);
 
 // Dispatches with `(string, int)` — used by
-// `MINIMAP_BLIP_TRACKING_CHANGED` for `(typeName, enabled)` payloads.
+// `MINIMAP_UPDATE_TRACKING` for `(typeName, enabled)` payloads.
 void Fire_SD(int eventID, const char *arg1, int arg2);
 
 // Internal: re-attempts unclaimed reservations. Called from the
