@@ -749,14 +749,15 @@ void Save() {
 static const char *const kTrackingChangedEvent = "MINIMAP_UPDATE_TRACKING";
 static const Event::Custom::AutoReserve _reserveTrackingChanged{kTrackingChangedEvent};
 
-// Notifies listeners that the tracked-set changed without saying what
-// changed — they're expected to call back into `C_Minimap.IsTracked` /
-// `GetTracked` to find out. Cheap (constant number of listeners, each
-// query is an O(1) set lookup) and saves us from threading payload args
-// through the event subsystem.
-static void FireTrackingChanged() {
+// Notifies listeners that the tracked-set changed. `arg1` is the type
+// name that changed (so a row keyed on its own type can fast-path past
+// other rows' updates), or `""` for `ClearAllTracking` — a sentinel for
+// "everything changed, re-query whatever you care about." Listeners
+// still call back into `C_Minimap.IsTracked` for the on/off state;
+// `arg1` exists for dispatch, not as the source of truth.
+static void FireTrackingChanged(const char *typeName) {
     const int eventID = Event::Custom::Lookup(kTrackingChangedEvent);
-    Event::Custom::Fire(eventID);
+    Event::Custom::Fire_S(eventID, typeName != nullptr ? typeName : "");
 }
 static const char *ReadActiveAccountName();
 static const char *ReadActiveRealmName();
@@ -790,7 +791,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        FireTrackingChanged();
+        FireTrackingChanged(typeName.c_str());
     }
     return 0;
 }
@@ -817,13 +818,14 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        FireTrackingChanged();
+        FireTrackingChanged(typeName.c_str());
     }
     return 0;
 }
 
 // Drops every currently-tracked category in one shot. Fires the event a
-// single time at the end so the menu can do one refresh instead of N.
+// single time at the end with `arg1=""` (the "everything changed"
+// sentinel) so the menu can do one refresh instead of N.
 static int __fastcall Script_MinimapBlip_ClearAllTracking(void * /*L*/) {
     EnsureConfigLoaded();
     // ApplyTrack mutates g_enabledTypes, so iterate a snapshot.
@@ -834,7 +836,7 @@ static int __fastcall Script_MinimapBlip_ClearAllTracking(void * /*L*/) {
             anyChanged = true;
     }
     if (anyChanged)
-        FireTrackingChanged();
+        FireTrackingChanged("");
     return 0;
 }
 

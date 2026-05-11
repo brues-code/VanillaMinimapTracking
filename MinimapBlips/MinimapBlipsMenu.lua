@@ -96,10 +96,15 @@ local function GenerateRows()
 
 		row:SetScript("OnEvent", function()
 			if event == "MINIMAP_UPDATE_TRACKING" then
-				if C_Minimap.IsTracked(this.blipType) then
-					this.check:Show()
-				else
-					this.check:Hide()
+				-- arg1 = changed type, or "" for clear-all. Other rows can
+				-- short-circuit single-toggle updates so only the affected
+				-- row queries IsTracked.
+				if arg1 == "" or arg1 == this.blipType then
+					if C_Minimap.IsTracked(this.blipType) then
+						this.check:Show()
+					else
+						this.check:Hide()
+					end
 				end
 			end
 		end)

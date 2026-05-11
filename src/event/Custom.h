@@ -41,13 +41,15 @@ struct AutoReserve {
 // fire time rather than caching the value.
 int Lookup(const char *name);
 
-// Dispatches with no payload. Listeners infer state by calling back into
-// our public API (e.g. `C_Minimap.IsTracked`) — used by
-// `MINIMAP_UPDATE_TRACKING`.
-void Fire(int eventID);
+// Dispatches with a single string arg. Used for events whose listeners
+// need at most one key to dispatch on (e.g. the changed type for
+// `MINIMAP_UPDATE_TRACKING`). The format walker overwrites `_G.arg1`
+// fresh, which sidesteps the leak that firing with format `""` causes
+// when called from inside an active Lua handler.
+void Fire_S(int eventID, const char *arg1);
 
 // Dispatches with `(string, int)`. Kept for events that genuinely need a
-// payload; the tracking-changed event no longer uses this.
+// payload pair.
 void Fire_SD(int eventID, const char *arg1, int arg2);
 
 // Internal: re-attempts unclaimed reservations. Called from the

@@ -96,8 +96,11 @@ To detect whether the DLL is loaded, just check the namespace:
 
 A real WoW event fires whenever tracking state changes — register it with
 `frame:RegisterEvent("MINIMAP_UPDATE_TRACKING")` and dispatch from the
-addon's `OnEvent` like any built-in event. No payload; listeners query
-state with `C_Minimap.IsTracked(type)` / `C_Minimap.GetTracked()`.
+addon's `OnEvent` like any built-in event. `arg1` is the type that
+changed (e.g. `"vendor"`), or `""` from `ClearAllTracking` meaning
+"everything changed". Listeners still query the on/off state with
+`C_Minimap.IsTracked(type)` / `C_Minimap.GetTracked()` — `arg1` exists
+for fast-path dispatch, not as the source of truth.
 
 ## Notes for the curious
 

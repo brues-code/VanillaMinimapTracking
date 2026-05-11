@@ -104,12 +104,13 @@ void PrepareForReload() {
     g_writesEnabled = false;
 }
 
-void Fire(int eventID) {
+void Fire_S(int eventID, const char *arg1) {
     if (eventID < 0)
         return;
-    using FireEvent_t = void(__cdecl *)(int eventID, const char *format);
-    auto fn = reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT);
-    fn(eventID, "");
+    using FireEvent_S_t = void(__cdecl *)(int eventID, const char *format,
+                                           const char *a);
+    auto fn = reinterpret_cast<FireEvent_S_t>(Offsets::FUN_FIRE_EVENT);
+    fn(eventID, "%s", arg1 != nullptr ? arg1 : "");
 }
 
 void Fire_SD(int eventID, const char *arg1, int arg2) {
