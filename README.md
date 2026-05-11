@@ -83,6 +83,7 @@ work too if you'd rather skip the enum.
 | `C_Minimap.RegisterHostileIcon(icon, scale)`                      | —                   | Sets the hostile-target variant separately.                                 |
 | `C_Minimap.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Saved on UI shutdown (logout / `/reload`).  |
 | `C_Minimap.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
+| `C_Minimap.ClearAllTracking()`                                     | —                   | Disables every currently-tracked category. Fires one `MINIMAP_UPDATE_TRACKING`. |
 | `C_Minimap.IsTracked(type)`                                        | `1` or `nil`        | `if C_Minimap.IsTracked(t) then ... end`.                               |
 | `C_Minimap.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
 | `C_Minimap.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
@@ -95,8 +96,8 @@ To detect whether the DLL is loaded, just check the namespace:
 
 A real WoW event fires whenever tracking state changes — register it with
 `frame:RegisterEvent("MINIMAP_UPDATE_TRACKING")` and dispatch from the
-addon's `OnEvent` like any built-in event. Args: `arg1` = type name, `arg2`
-= `1` (enabled) or `0` (disabled).
+addon's `OnEvent` like any built-in event. No payload; listeners query
+state with `C_Minimap.IsTracked(type)` / `C_Minimap.GetTracked()`.
 
 ## Notes for the curious
 

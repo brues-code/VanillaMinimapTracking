@@ -479,6 +479,13 @@ static bool UninstallHooks() {
     if (!g_hooksInstalled)
         return TRUE;
 
+    // The render hook is about to go away; drop the last enum pass's blip
+    // list so a future re-install can't draw from stale data before the
+    // first refill of `g_trackedObjectsData` lands. Same for hover hits —
+    // they cache whichever blips the cursor was last over.
+    g_trackedObjectsData.clear();
+    g_blipHoverState = BlipHoverState();
+
     UNHOOK_FUNCTION(Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS, ClntObjMgrEnumVisibleObjects_o);
     UNHOOK_FUNCTION(Offsets::FUN_OBJECT_ENUM_PROC, ObjectEnumProc_o);
     UNHOOK_FUNCTION(Offsets::FUN_RENDER_OBJECT_BLIP, RenderObjectBlips_o);
@@ -742,9 +749,14 @@ void Save() {
 static const char *const kTrackingChangedEvent = "MINIMAP_UPDATE_TRACKING";
 static const Event::Custom::AutoReserve _reserveTrackingChanged{kTrackingChangedEvent};
 
-static void FireTrackingChanged(const std::string &typeName, bool enabled) {
+// Notifies listeners that the tracked-set changed without saying what
+// changed — they're expected to call back into `C_Minimap.IsTracked` /
+// `GetTracked` to find out. Cheap (constant number of listeners, each
+// query is an O(1) set lookup) and saves us from threading payload args
+// through the event subsystem.
+static void FireTrackingChanged() {
     const int eventID = Event::Custom::Lookup(kTrackingChangedEvent);
-    Event::Custom::Fire_SD(eventID, typeName.c_str(), enabled ? 1 : 0);
+    Event::Custom::Fire(eventID);
 }
 static const char *ReadActiveAccountName();
 static const char *ReadActiveRealmName();
@@ -778,7 +790,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        FireTrackingChanged(typeName, enabled);
+        FireTrackingChanged();
     }
     return 0;
 }
@@ -805,8 +817,24 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
         return 0;
     }
     if (r == ApplyResult::Applied) {
-        FireTrackingChanged(typeName, nextState);
+        FireTrackingChanged();
     }
+    return 0;
+}
+
+// Drops every currently-tracked category in one shot. Fires the event a
+// single time at the end so the menu can do one refresh instead of N.
+static int __fastcall Script_MinimapBlip_ClearAllTracking(void * /*L*/) {
+    EnsureConfigLoaded();
+    // ApplyTrack mutates g_enabledTypes, so iterate a snapshot.
+    std::vector<std::string> snapshot(g_enabledTypes.begin(), g_enabledTypes.end());
+    bool anyChanged = false;
+    for (const auto &name : snapshot) {
+        if (ApplyTrack(name, false) == ApplyResult::Applied)
+            anyChanged = true;
+    }
+    if (anyChanged)
+        FireTrackingChanged();
     return 0;
 }
 
@@ -985,6 +1013,8 @@ static void RegisterLuaFunctions() {
                                      &Script_MinimapBlip_RegisterHostileIcon);
     Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
     Game::Lua::RegisterTableFunction(NS, "Toggle", &Script_MinimapBlip_Toggle);
+    Game::Lua::RegisterTableFunction(NS, "ClearAllTracking",
+                                     &Script_MinimapBlip_ClearAllTracking);
     Game::Lua::RegisterTableFunction(NS, "IsTracked", &Script_MinimapBlip_IsTracked);
     Game::Lua::RegisterTableFunction(NS, "GetTracked", &Script_MinimapBlip_GetTracked);
     Game::Lua::RegisterTableFunction(NS, "ListVisibleGUIDs",

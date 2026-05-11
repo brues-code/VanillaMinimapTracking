@@ -28,7 +28,8 @@ local PADDING    = 6
 local menu = CreateFrame("Frame", "MinimapBlipsMenu", UIParent)
 menu:SetFrameStrata("FULLSCREEN_DIALOG")
 menu:SetWidth(ROW_WIDTH + PADDING * 2)
-menu:SetHeight(table.getn(BLIP_TYPES) * ROW_HEIGHT + PADDING * 2)
+-- +1 row for the "Clear All" entry pinned at the top.
+menu:SetHeight((table.getn(BLIP_TYPES) + 1) * ROW_HEIGHT + PADDING * 2)
 menu:SetBackdrop({
 	bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
 	edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -43,12 +44,27 @@ menu:Hide()
 
 local function GenerateRows()
 	if menu.rows then return end
-	local tracked = C_Minimap.GetTracked()
+
+	-- "Clear All" row pinned at row index 0. No checkbox, no per-type icon —
+	-- just a centered label that calls `C_Minimap.ClearAllTracking`. The DLL
+	-- fires `MINIMAP_UPDATE_TRACKING` once at the end, which makes every
+	-- toggle row below re-query its state.
+	local clearRow = CreateFrame("Button", nil, menu)
+	clearRow:SetWidth(ROW_WIDTH)
+	clearRow:SetHeight(ROW_HEIGHT)
+	clearRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -PADDING)
+	clearRow:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+	local clearLabel = clearRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	clearLabel:SetPoint("CENTER", clearRow, "CENTER", 0, 0)
+	clearLabel:SetText("Clear All")
+	clearRow:SetScript("OnClick", function() C_Minimap.ClearAllTracking() end)
+
 	for i, entry in ipairs(BLIP_TYPES) do
 		local row = CreateFrame("Button", nil, menu)
 		row:SetWidth(ROW_WIDTH)
 		row:SetHeight(ROW_HEIGHT)
-		row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + (i - 1) * ROW_HEIGHT))
+		-- Blip rows start at index 1 below the Clear All row at index 0.
+		row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + i * ROW_HEIGHT))
 		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
 		local check = row:CreateTexture(nil, "ARTWORK")
@@ -56,7 +72,7 @@ local function GenerateRows()
 		check:SetWidth(14)
 		check:SetHeight(14)
 		check:SetPoint("LEFT", row, "LEFT", 0, 0)
-		if not tracked[entry.type] then
+		if not C_Minimap.IsTracked(entry.type) then
 			check:Hide()
 		end
 
@@ -80,12 +96,10 @@ local function GenerateRows()
 
 		row:SetScript("OnEvent", function()
 			if event == "MINIMAP_UPDATE_TRACKING" then
-				if this.blipType == arg1 then
-					if arg2 == 1 then
-						this.check:Show()
-					else
-						this.check:Hide()
-					end
+				if C_Minimap.IsTracked(this.blipType) then
+					this.check:Show()
+				else
+					this.check:Hide()
 				end
 			end
 		end)

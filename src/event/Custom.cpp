@@ -104,6 +104,14 @@ void PrepareForReload() {
     g_writesEnabled = false;
 }
 
+void Fire(int eventID) {
+    if (eventID < 0)
+        return;
+    using FireEvent_t = void(__cdecl *)(int eventID, const char *format);
+    auto fn = reinterpret_cast<FireEvent_t>(Offsets::FUN_FIRE_EVENT);
+    fn(eventID, "");
+}
+
 void Fire_SD(int eventID, const char *arg1, int arg2) {
     if (eventID < 0)
         return;

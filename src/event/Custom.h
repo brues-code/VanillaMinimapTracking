@@ -41,8 +41,13 @@ struct AutoReserve {
 // fire time rather than caching the value.
 int Lookup(const char *name);
 
-// Dispatches with `(string, int)` — used by
-// `MINIMAP_UPDATE_TRACKING` for `(typeName, enabled)` payloads.
+// Dispatches with no payload. Listeners infer state by calling back into
+// our public API (e.g. `C_Minimap.IsTracked`) — used by
+// `MINIMAP_UPDATE_TRACKING`.
+void Fire(int eventID);
+
+// Dispatches with `(string, int)`. Kept for events that genuinely need a
+// payload; the tracking-changed event no longer uses this.
 void Fire_SD(int eventID, const char *arg1, int arg2);
 
 // Internal: re-attempts unclaimed reservations. Called from the
