@@ -14,6 +14,13 @@
 #include "Game.h"
 #include "Offsets.h"
 
+// Binds an engine function pointer constant. Each call is
+// `const <typedef> <name> = reinterpret_cast<<typedef>>(Offsets::<offset>);`
+// — boilerplate that gets repeated for every engine function we wire up.
+// `#undef`'d at end-of-file so it doesn't leak.
+#define BIND(typedef_t, name, offset_const)                                                        \
+    const typedef_t name = reinterpret_cast<typedef_t>(Offsets::offset_const)
+
 namespace Game {
 
 namespace {
@@ -34,25 +41,43 @@ void RunModuleRegistrations() {
 }
 
 namespace Lua {
-const lua_pushnil_t PushNil = reinterpret_cast<lua_pushnil_t>(Offsets::LUA_PUSH_NIL);
-const lua_isnumber_t IsNumber = reinterpret_cast<lua_isnumber_t>(Offsets::LUA_IS_NUMBER);
-const lua_tonumber_t ToNumber = reinterpret_cast<lua_tonumber_t>(Offsets::LUA_TO_NUMBER);
-const lua_pushnumber_t PushNumber = reinterpret_cast<lua_pushnumber_t>(Offsets::LUA_PUSH_NUMBER);
-const lua_isstring_t IsString = reinterpret_cast<lua_isstring_t>(Offsets::LUA_IS_STRING);
-const lua_tostring_t ToString = reinterpret_cast<lua_tostring_t>(Offsets::LUA_TO_STRING);
-const lua_pushstring_t PushString = reinterpret_cast<lua_pushstring_t>(Offsets::LUA_PUSH_STRING);
-const lua_pushcclosure_t PushCClosure =
-    reinterpret_cast<lua_pushcclosure_t>(Offsets::LUA_PUSH_CCLOSURE);
-const lua_gettable_t GetTable = reinterpret_cast<lua_gettable_t>(Offsets::LUA_GET_TABLE);
-const lua_settable_t SetTable = reinterpret_cast<lua_settable_t>(Offsets::LUA_SET_TABLE);
-const lua_newtable_t NewTable = reinterpret_cast<lua_newtable_t>(Offsets::LUA_NEW_TABLE);
-const lua_type_t Type = reinterpret_cast<lua_type_t>(Offsets::LUA_TYPE);
-const lua_next_t Next = reinterpret_cast<lua_next_t>(Offsets::LUA_NEXT);
-const lua_settop_t SetTop = reinterpret_cast<lua_settop_t>(Offsets::LUA_SET_TOP);
-const lua_error_t Error = reinterpret_cast<lua_error_t>(Offsets::LUA_ERROR);
+BIND(lua_pushnil_t,       PushNil,      LUA_PUSH_NIL);
+BIND(lua_isnumber_t,      IsNumber,     LUA_IS_NUMBER);
+BIND(lua_tonumber_t,      ToNumber,     LUA_TO_NUMBER);
+BIND(lua_pushnumber_t,    PushNumber,   LUA_PUSH_NUMBER);
+BIND(lua_isstring_t,      IsString,     LUA_IS_STRING);
+BIND(lua_tostring_t,      ToString,     LUA_TO_STRING);
+BIND(lua_pushstring_t,    PushString,   LUA_PUSH_STRING);
+BIND(lua_pushcclosure_t,  PushCClosure, LUA_PUSH_CCLOSURE);
+BIND(lua_gettable_t,      GetTable,     LUA_GET_TABLE);
+BIND(lua_settable_t,      SetTable,     LUA_SET_TABLE);
+BIND(lua_newtable_t,      NewTable,     LUA_NEW_TABLE);
+BIND(lua_type_t,          Type,         LUA_TYPE);
+BIND(lua_next_t,          Next,         LUA_NEXT);
+BIND(lua_settop_t,        SetTop,       LUA_SET_TOP);
+BIND(lua_error_t,         Error,        LUA_ERROR);
 
 void *State() {
     return *reinterpret_cast<void **>(static_cast<uintptr_t>(Offsets::VAR_LUA_STATE));
+}
+
+// Looks up `_G[name]`. If absent, creates a fresh table and binds it.
+// Leaves the resulting table on top of the stack. Used by both
+// `RegisterTableFunction` and `RegisterStringEnum` to spell out the same
+// namespace dance the same way.
+static void EnsureGlobalTable(void *L, const char *name) {
+    PushString(L, name);
+    GetTable(L, GLOBALS_INDEX);
+    if (Type(L, -1) == TYPE_TABLE)
+        return; // already there, leave on stack
+
+    SetTop(L, -2); // pop the non-table
+    PushString(L, name);
+    NewTable(L);
+    SetTable(L, GLOBALS_INDEX);
+    // Re-fetch so the table is left on top of the stack for the caller.
+    PushString(L, name);
+    GetTable(L, GLOBALS_INDEX);
 }
 
 void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func) {
@@ -60,24 +85,11 @@ void RegisterTableFunction(const char *tableName, const char *methodName, CFunct
     if (L == nullptr)
         return;
 
-    // If _G[tableName] doesn't already exist as a table, create it.
-    PushString(L, tableName);
-    GetTable(L, GLOBALS_INDEX);
-    const bool alreadyExists = (Type(L, -1) == TYPE_TABLE);
-    SetTop(L, -2); // pop the lookup result
-    if (!alreadyExists) {
-        PushString(L, tableName);
-        NewTable(L);
-        SetTable(L, GLOBALS_INDEX);
-    }
-
-    // Re-fetch the namespace and set the method on it.
-    PushString(L, tableName);
-    GetTable(L, GLOBALS_INDEX);   // [tbl]
-    PushString(L, methodName);    // [tbl, methodName]
-    PushCClosure(L, func, 0);     // [tbl, methodName, closure]
-    SetTable(L, -3);              // tbl[methodName] = closure; pops k+v. [tbl]
-    SetTop(L, -2);                // pop tbl. []
+    EnsureGlobalTable(L, tableName); // [tbl]
+    PushString(L, methodName);       // [tbl, methodName]
+    PushCClosure(L, func, 0);        // [tbl, methodName, closure]
+    SetTable(L, -3);                 // tbl[methodName] = closure; pops k+v. [tbl]
+    SetTop(L, -2);                   // pop tbl. []
 }
 
 void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *entries,
@@ -86,60 +98,38 @@ void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *en
     if (L == nullptr)
         return;
 
-    // Ensure _G[parent] exists as a table.
-    PushString(L, parent);
-    GetTable(L, GLOBALS_INDEX);
-    const bool parentExists = (Type(L, -1) == TYPE_TABLE);
-    SetTop(L, -2);
-    if (!parentExists) {
-        PushString(L, parent);
-        NewTable(L);
-        SetTable(L, GLOBALS_INDEX);
-    }
-
-    // _G[parent][sub] = { ...entries }
-    PushString(L, parent);
-    GetTable(L, GLOBALS_INDEX);   // [parentTbl]
-    PushString(L, sub);            // [parentTbl, subName]
-    NewTable(L);                   // [parentTbl, subName, subTbl]
+    EnsureGlobalTable(L, parent); // [parentTbl]
+    PushString(L, sub);           // [parentTbl, subName]
+    NewTable(L);                  // [parentTbl, subName, subTbl]
     for (int i = 0; i < count; i++) {
         PushString(L, entries[i].key);
         PushString(L, entries[i].value);
-        SetTable(L, -3);            // subTbl[key] = value
+        SetTable(L, -3); // subTbl[key] = value
     }
-    SetTable(L, -3);                // parentTbl[sub] = subTbl
-    SetTop(L, -2);                  // pop parentTbl
+    SetTable(L, -3); // parentTbl[sub] = subTbl
+    SetTop(L, -2);   // pop parentTbl
 }
 } // namespace Lua
 
-const GetGUIDFromName_t GetGUIDFromName =
-    reinterpret_cast<GetGUIDFromName_t>(Offsets::FUN_GET_GUID_FROM_NAME);
-const ClntObjMgrObjectPtr_t ClntObjMgrObjectPtr =
-    reinterpret_cast<ClntObjMgrObjectPtr_t>(Offsets::FUN_CLNT_OBJ_MGR_OBJECT_PTR);
-const TextureGetGxTex_t TextureGetGxTex =
-    reinterpret_cast<TextureGetGxTex_t>(Offsets::FUN_TEXTURE_GET_GX_TEX);
-const GxRsSet_t GxRsSet = reinterpret_cast<GxRsSet_t>(Offsets::FUN_GX_RS_SET);
-const GxPrimLockVertexPtrs_t GxPrimLockVertexPtrs =
-    reinterpret_cast<GxPrimLockVertexPtrs_t>(Offsets::FUN_GX_PRIM_LOCK_VERTEX_PTRS);
-const GxPrimDrawElements_t GxPrimDrawElements =
-    reinterpret_cast<GxPrimDrawElements_t>(Offsets::FUN_GX_PRIM_DRAW_ELEMENTS);
-const GxPrimUnlockVertexPtrs_t GxPrimUnlockVertexPtrs =
-    reinterpret_cast<GxPrimUnlockVertexPtrs_t>(Offsets::FUN_GX_PRIM_UNLOCK_VERTEX_PTRS);
-const TextureCreate_t TextureCreate =
-    reinterpret_cast<TextureCreate_t>(Offsets::FUN_TEXTURE_CREATE);
-const WorldPosToMinimapFrameCoords_t WorldPosToMinimapFrameCoords =
-    reinterpret_cast<WorldPosToMinimapFrameCoords_t>(
-        Offsets::FUN_WORLD_POS_TO_MINIMAP_FRAME_COORDS);
-const SStrPack_t SStrPack = reinterpret_cast<SStrPack_t>(Offsets::FUN_S_STR_PACK);
-const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs =
-    reinterpret_cast<CWorld_QueryMapObjIDs_t>(Offsets::FUN_CWORLD_QUERY_MAP_OBJ_IDS);
-const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects =
-    reinterpret_cast<ClntObjMgrEnumVisibleObjects_t>(
-        Offsets::FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
-const CGUnit_C_CanAssist_t CGUnit_C_CanAssist =
-    reinterpret_cast<CGUnit_C_CanAssist_t>(Offsets::FUN_CGUNIT_C_CAN_ASSIST);
+BIND(GetGUIDFromName_t,              GetGUIDFromName,              FUN_GET_GUID_FROM_NAME);
+BIND(ClntObjMgrObjectPtr_t,          ClntObjMgrObjectPtr,          FUN_CLNT_OBJ_MGR_OBJECT_PTR);
+BIND(TextureGetGxTex_t,              TextureGetGxTex,              FUN_TEXTURE_GET_GX_TEX);
+BIND(GxRsSet_t,                      GxRsSet,                      FUN_GX_RS_SET);
+BIND(GxPrimLockVertexPtrs_t,         GxPrimLockVertexPtrs,         FUN_GX_PRIM_LOCK_VERTEX_PTRS);
+BIND(GxPrimDrawElements_t,           GxPrimDrawElements,           FUN_GX_PRIM_DRAW_ELEMENTS);
+BIND(GxPrimUnlockVertexPtrs_t,       GxPrimUnlockVertexPtrs,       FUN_GX_PRIM_UNLOCK_VERTEX_PTRS);
+BIND(TextureCreate_t,                TextureCreate,                FUN_TEXTURE_CREATE);
+BIND(WorldPosToMinimapFrameCoords_t, WorldPosToMinimapFrameCoords, FUN_WORLD_POS_TO_MINIMAP_FRAME_COORDS);
+BIND(SStrPack_t,                     SStrPack,                     FUN_S_STR_PACK);
+BIND(CWorld_QueryMapObjIDs_t,        CWorld_QueryMapObjIDs,        FUN_CWORLD_QUERY_MAP_OBJ_IDS);
+BIND(ClntObjMgrEnumVisibleObjects_t, ClntObjMgrEnumVisibleObjects, FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
+BIND(CGUnit_C_CanAssist_t,           CGUnit_C_CanAssist,           FUN_CGUNIT_C_CAN_ASSIST);
 
 CStatus::CStatus()
+    // `m_head` is a TSLink intrusive-list head pointing at itself, with the
+    // low bit of `next` set as the "empty list" sentinel — the engine's
+    // CStatus destructor walks this list and the tag tells it the list is
+    // empty. Same layout the engine uses when it constructs CStatus itself.
     : vftable(reinterpret_cast<void *>(Offsets::VFTABLE_CSTATUS)), m_unk(8),
       m_head{&m_head, reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(&m_head) | 1U)},
       m_maxSeverity(STATUS_TYPE::STATUS_INFO) {}
@@ -191,3 +181,5 @@ void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float sca
 }
 
 } // namespace Game
+
+#undef BIND
