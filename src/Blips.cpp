@@ -184,11 +184,6 @@ static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
     return !Game::CGUnit_C_CanAssist(playerPtr, unitptr);
 }
 
-static bool IsAnyTrackingActive() {
-    return g_targetTracking || g_focusTracking || !g_trackedUnitFlagsBlips.empty() ||
-           !g_trackedGameObjectTypesBlips.empty();
-}
-
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
     if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID &&
         guid != g_playerGUID) {
@@ -681,16 +676,9 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         bool *flag = (typeName == "target") ? &g_targetTracking : &g_focusTracking;
         if (enabled == *flag)
             return ApplyResult::NoChange;
-        if (enabled) {
-            if (needIcon() == nullptr)
-                return ApplyResult::IconMissing;
-            *flag = true;
-            InstallHooks();
-        } else {
-            *flag = false;
-            if (!IsAnyTrackingActive())
-                UninstallHooks();
-        }
+        if (enabled && needIcon() == nullptr)
+            return ApplyResult::IconMissing;
+        *flag = enabled;
         recordEnabled(enabled);
         return ApplyResult::Applied;
     }
@@ -704,12 +692,9 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         const Blip *icon = needIcon();
         if (icon == nullptr)
             return ApplyResult::IconMissing;
-        InstallHooks();
         tracked[def->engineValue] = *icon;
     } else {
         tracked.erase(def->engineValue);
-        if (!IsAnyTrackingActive())
-            UninstallHooks();
     }
     recordEnabled(enabled);
     return ApplyResult::Applied;
@@ -1008,6 +993,16 @@ static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
 }
 
 static void RegisterLuaFunctions() {
+    // Install our hooks once at module-register time and leave them up for
+    // the DLL's lifetime. MinHook's enable/disable suspends every thread in
+    // the process while it rewrites prologue bytes — with 7 hooks each,
+    // toggling them across 0↔1-tracked transitions caused a visible
+    // stutter. The hooks' fast paths are cheap (empty draws, early-returns
+    // when nothing is tracked), so always-on is essentially free per frame.
+    // `Reset()` still uninstalls on `CGGameUI_Shutdown` so /reload comes up
+    // clean.
+    InstallHooks();
+
     constexpr const char *NS = "C_Minimap";
     Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
     Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
