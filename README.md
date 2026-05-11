@@ -32,8 +32,8 @@ The current category menu (managed in
 - **Target** — your current target. A separate hostile-target icon is used
   if you can't assist the target (uses `CGUnit_C::CanAssist`).
 - **Focus** — a pseudo-focus unit (vanilla 1.12.1 has no native focus). Set
-  with `C_MinimapBlip.SetFocus([unit])` (defaults to `"target"`) or
-  `C_MinimapBlip.SetFocusByName(name)`.
+  with `C_Minimap.SetFocus([unit])` (defaults to `"target"`) or
+  `C_Minimap.SetFocusByName(name)`.
 - **Auctioneer, Banker, Flight Master, Innkeeper, Repair, Trainer,
   Stable Master, Battlemaster, Vendor** — NPCs matched by their
   `m_npcFlags` field.
@@ -66,11 +66,11 @@ cmake --build build --config Release
    `<WoW>\Interface\AddOns\MinimapBlips\`.
 
 Both the DLL and the addon need to be installed — the addon detects the DLL
-via the `C_MinimapBlip` namespace and refuses to load if the DLL is missing.
+via the `C_Minimap` namespace and refuses to load if the DLL is missing.
 
 ## Lua API
 
-Functions live on the `C_MinimapBlip` namespace table (Blizzard's `C_*` style).
+Functions live on the `C_Minimap` namespace table (Blizzard's `C_*` style).
 Pass type names from the `Enum.MinimapBlip` table — keys are PascalCase
 (`Target`, `FlightMaster`, `StableMaster`, `Battlemaster`, `Mailbox`, …) and
 values are the lowercase strings the engine actually uses. Hard-coded strings
@@ -78,20 +78,20 @@ work too if you'd rather skip the enum.
 
 | Function                                                              | Returns             | Notes                                                                       |
 |-----------------------------------------------------------------------|---------------------|-----------------------------------------------------------------------------|
-| `C_MinimapBlip.RegisterIcons({{type, icon, scale, hostileIcon?}, ...})` | —                   | Bulk-register icons in one call. `hostileIcon` is only honored on `target`. |
-| `C_MinimapBlip.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |
-| `C_MinimapBlip.RegisterHostileIcon(icon, scale)`                      | —                   | Sets the hostile-target variant separately.                                 |
-| `C_MinimapBlip.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Saved on UI shutdown (logout / `/reload`).  |
-| `C_MinimapBlip.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
-| `C_MinimapBlip.IsTracked(type)`                                        | `1` or `nil`        | `if C_MinimapBlip.IsTracked(t) then ... end`.                               |
-| `C_MinimapBlip.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
-| `C_MinimapBlip.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
-| `C_MinimapBlip.SetFocus([unit])`                                       | —                   | Pins `unit` (a unit ID like `"target"`/`"party1"`) as focus. Defaults to `"target"`. Errors if not found. |
-| `C_MinimapBlip.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
-| `C_MinimapBlip.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
+| `C_Minimap.RegisterIcons({{type, icon, scale, hostileIcon?}, ...})` | —                   | Bulk-register icons in one call. `hostileIcon` is only honored on `target`. |
+| `C_Minimap.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |
+| `C_Minimap.RegisterHostileIcon(icon, scale)`                      | —                   | Sets the hostile-target variant separately.                                 |
+| `C_Minimap.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Saved on UI shutdown (logout / `/reload`).  |
+| `C_Minimap.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
+| `C_Minimap.IsTracked(type)`                                        | `1` or `nil`        | `if C_Minimap.IsTracked(t) then ... end`.                               |
+| `C_Minimap.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
+| `C_Minimap.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
+| `C_Minimap.SetFocus([unit])`                                       | —                   | Pins `unit` (a unit ID like `"target"`/`"party1"`) as focus. Defaults to `"target"`. Errors if not found. |
+| `C_Minimap.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
+| `C_Minimap.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
 
 To detect whether the DLL is loaded, just check the namespace:
-`if C_MinimapBlip then ... end`.
+`if C_Minimap then ... end`.
 
 A real WoW event fires whenever tracking state changes — register it with
 `frame:RegisterEvent("MINIMAP_UPDATE_TRACKING")` and dispatch from the

@@ -95,7 +95,7 @@ enum class BlipKind {
 
 struct BlipTypeDef {
     const char *enumKey;   // PascalCase, exposed as Enum.MinimapBlip.<key>
-    const char *typeName;  // lowercase, the value addons actually pass to C_MinimapBlip.*
+    const char *typeName;  // lowercase, the value addons actually pass to C_Minimap.*
     BlipKind kind;
     uint32_t engineValue;  // unused for Special
 };
@@ -516,7 +516,7 @@ static void SyncRuntimeFromIntent();
 
 static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterIcon(trackingType, icon [, scale])");
+        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcon(trackingType, icon [, scale])");
         return 0;
     }
 
@@ -548,12 +548,12 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
 }
 
 // Bulk-register icons from a Lua array of `{ type, icon, scale, hostileIcon? }`
-// entries. Equivalent to a loop of C_MinimapBlip.RegisterIcon (and
-// C_MinimapBlip.RegisterHostileIcon when `hostileIcon` is present), but with
+// entries. Equivalent to a loop of C_Minimap.RegisterIcon (and
+// C_Minimap.RegisterHostileIcon when `hostileIcon` is present), but with
 // only one Lua→C transition for the whole batch.
 static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     if (!Game::Lua::IsTable(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterIcons({ {type, icon, scale, "
+        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcons({ {type, icon, scale, "
                             "[hostileIcon]}, ... })");
         return 0;
     }
@@ -626,7 +626,7 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
 
 static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.RegisterHostileIcon(icon [, scale])");
+        Game::Lua::Error(L, "Usage: C_Minimap.RegisterHostileIcon(icon [, scale])");
         return 0;
     }
 
@@ -752,7 +752,7 @@ static const char *ReadActiveCharacterName();
 
 static int __fastcall Script_MinimapBlip_Track(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.Track(trackingType [, enabled])");
+        Game::Lua::Error(L, "Usage: C_Minimap.Track(trackingType [, enabled])");
         return 0;
     }
 
@@ -774,7 +774,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     }
     if (r == ApplyResult::IconMissing) {
         Game::Lua::Error(L, "No icon registered for this type. Call "
-                            "C_MinimapBlip.RegisterIcon first.");
+                            "C_Minimap.RegisterIcon first.");
         return 0;
     }
     if (r == ApplyResult::Applied) {
@@ -784,10 +784,10 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
 }
 
 // Flips the tracked state of `type` without the caller having to know its
-// current value — UI handlers just call `C_MinimapBlip.Toggle(t)`.
+// current value — UI handlers just call `C_Minimap.Toggle(t)`.
 static int __fastcall Script_MinimapBlip_Toggle(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.Toggle(trackingType)");
+        Game::Lua::Error(L, "Usage: C_Minimap.Toggle(trackingType)");
         return 0;
     }
     const std::string typeName = Game::Lua::ToString(L, 1);
@@ -801,7 +801,7 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
     }
     if (r == ApplyResult::IconMissing) {
         Game::Lua::Error(L, "No icon registered for this type. Call "
-                            "C_MinimapBlip.RegisterIcon first.");
+                            "C_Minimap.RegisterIcon first.");
         return 0;
     }
     if (r == ApplyResult::Applied) {
@@ -812,7 +812,7 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
 
 static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.IsTracked(trackingType)");
+        Game::Lua::Error(L, "Usage: C_Minimap.IsTracked(trackingType)");
         return 0;
     }
     const std::string typeName = Game::Lua::ToString(L, 1);
@@ -825,7 +825,7 @@ static int __fastcall Script_MinimapBlip_IsTracked(void *L) {
 
 // Returns a Lua array of GUID hex strings for every tracked object currently
 // rendered on the minimap. Optional first arg filters by type (e.g.
-// `C_MinimapBlip.ListVisibleGUIDs("vendor")`).
+// `C_Minimap.ListVisibleGUIDs("vendor")`).
 static int __fastcall Script_MinimapBlip_ListVisibleGUIDs(void *L) {
     std::string filter;
     bool hasFilter = false;
@@ -962,7 +962,7 @@ static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
 
 static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_MinimapBlip.SetFocusByName(name)");
+        Game::Lua::Error(L, "Usage: C_Minimap.SetFocusByName(name)");
         return 0;
     }
     const std::string name = Game::Lua::ToString(L, 1);
@@ -978,7 +978,7 @@ static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
 }
 
 static void RegisterLuaFunctions() {
-    constexpr const char *NS = "C_MinimapBlip";
+    constexpr const char *NS = "C_Minimap";
     Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
     Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
     Game::Lua::RegisterTableFunction(NS, "RegisterHostileIcon",

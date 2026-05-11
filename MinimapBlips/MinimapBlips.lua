@@ -3,7 +3,7 @@
 local eventFrame = CreateFrame("Frame")
 
 local function MinimapBlips_OnAddonLoaded()
-	if not C_MinimapBlip then
+	if not C_Minimap then
 		DEFAULT_CHAT_FRAME:AddMessage("|cffff4444MinimapBlips:|r VanillaMinimapTracking not found. Addon disabled.")
 		return
 	end

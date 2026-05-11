@@ -43,7 +43,7 @@ menu:Hide()
 
 local function GenerateRows()
 	if menu.rows then return end
-	local tracked = C_MinimapBlip.GetTracked()
+	local tracked = C_Minimap.GetTracked()
 	for i, entry in ipairs(BLIP_TYPES) do
 		local row = CreateFrame("Button", nil, menu)
 		row:SetWidth(ROW_WIDTH)
@@ -75,7 +75,7 @@ local function GenerateRows()
 		row.blipType = entry.type
 
 		row:SetScript("OnClick", function()
-			C_MinimapBlip.Toggle(row.blipType)
+			C_Minimap.Toggle(row.blipType)
 		end)
 
 		row:SetScript("OnEvent", function()
@@ -95,7 +95,7 @@ local function GenerateRows()
 end
 
 function MinimapBlipsMenu_RegisterIcons()
-	C_MinimapBlip.RegisterIcons(BLIP_TYPES)
+	C_Minimap.RegisterIcons(BLIP_TYPES)
 end
 
 function MinimapBlipsMenu_Toggle(anchorButton)

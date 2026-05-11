@@ -451,7 +451,7 @@ void *State();
 
 // Registers `func` at `_G[tableName][methodName]`, creating the namespace
 // table if it doesn't already exist. Lets us expose Blizzard-style C_*
-// APIs (e.g. `C_MinimapBlip.RegisterIcons`) instead of flat globals.
+// APIs (e.g. `C_Minimap.RegisterIcons`) instead of flat globals.
 void RegisterTableFunction(const char *tableName, const char *methodName, CFunction func);
 
 // Key/value pair for `RegisterStringEnum`. `key` becomes a field name
