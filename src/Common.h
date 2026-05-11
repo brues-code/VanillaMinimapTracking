@@ -11,8 +11,11 @@
 // You should have received a copy of the GNU Lesser General Public License along with
 // VanillaMinimapTracking. If not, see <https://www.gnu.org/licenses/>.
 
-namespace Common {
+#pragma once
 
+// Both macros propagate `return FALSE;` to the caller on failure — caller
+// must be in a context where that's a valid early-out (DllMain or our
+// Install/UninstallHooks helpers).
 #define HOOK_FUNCTION(offset, hook, original)                                                      \
     {                                                                                              \
         auto *target = reinterpret_cast<LPVOID>(offset);                                           \
@@ -32,7 +35,3 @@ namespace Common {
             return FALSE;                                                                          \
         (original) = nullptr;                                                                      \
     }
-
-bool PatchBytes(void *dst, const void *src, size_t len);
-
-} // namespace Common

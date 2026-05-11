@@ -29,6 +29,10 @@ using FrameRegisterEvent_t = void(__fastcall *)(void *frame, void *edx,
                                                  const char *eventName);
 static FrameRegisterEvent_t FrameRegisterEvent_o = nullptr;
 
+// No-op replacement for the engine's "is this function pointer valid" check.
+// The stock check crashes us out under MinHook's trampolines because the
+// trampoline page isn't inside the engine's expected text range. Returning
+// "valid" (do-nothing body) lets our hooks coexist with the check.
 static void __fastcall InvalidFunctionPtrCheck_h() {}
 
 static bool __fastcall FrameScript_Initialize_h() {

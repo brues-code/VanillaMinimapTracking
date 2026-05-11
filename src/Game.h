@@ -395,15 +395,10 @@ namespace Lua {
 // Lua 5.0 pseudo-index for the globals table.
 constexpr int GLOBALS_INDEX = -10001;
 
-// `lua_type` return codes. Used in place of magic numbers when checking
-// stack value kinds.
-constexpr int TYPE_NIL = 0;
-constexpr int TYPE_BOOLEAN = 1;
-constexpr int TYPE_LIGHTUSERDATA = 2;
-constexpr int TYPE_NUMBER = 3;
-constexpr int TYPE_STRING = 4;
+// `lua_type` return code for tables. The only kind we explicitly compare
+// against (used to detect whether `_G[name]` is already a namespace
+// before creating one).
 constexpr int TYPE_TABLE = 5;
-constexpr int TYPE_FUNCTION = 6;
 
 // Calling convention used by every C-implemented Lua function the engine
 // calls into. Same signature on every entry point — having a typedef stops
@@ -443,7 +438,6 @@ extern const lua_settop_t SetTop;
 extern const lua_error_t Error;
 
 inline bool IsTable(void *L, int index) { return Type(L, index) == TYPE_TABLE; }
-inline void Pop(void *L, int index) { SetTop(L, -(index)-1); }
 
 // Returns the engine's lua_State *, read on demand from the engine global.
 // Returns nullptr if the engine hasn't initialised the state yet.
@@ -469,7 +463,6 @@ void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *en
                         int count);
 } // namespace Lua
 
-using FrameScript_RegisterFunction_t = void(__fastcall *)(const char *name, uintptr_t func);
 using LoadScriptFunctions_t = void(__fastcall *)();
 using GetGUIDFromName_t = uint64_t(__fastcall *)(const char *unitName);
 using ClntObjMgrObjectPtr_t = CGObject_C *(__fastcall *)(uint32_t typeMask,
@@ -509,7 +502,6 @@ using CGGameUI_Shutdown_t = void(__fastcall *)();
 using FrameRegisterEvent_t = void(__fastcall *)(void *frame, void *edx, const char *eventName);
 using CGUnit_C_CanAssist_t = bool(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
 
-extern const FrameScript_RegisterFunction_t FrameScript_RegisterFunction;
 extern const GetGUIDFromName_t GetGUIDFromName;
 extern const ClntObjMgrObjectPtr_t ClntObjMgrObjectPtr;
 extern const TextureGetGxTex_t TextureGetGxTex;

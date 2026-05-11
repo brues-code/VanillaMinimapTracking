@@ -112,8 +112,6 @@ void RegisterStringEnum(const char *parent, const char *sub, const EnumEntry *en
 }
 } // namespace Lua
 
-const FrameScript_RegisterFunction_t FrameScript_RegisterFunction =
-    reinterpret_cast<FrameScript_RegisterFunction_t>(Offsets::FUN_REGISTER_LUA_FUNCTION);
 const GetGUIDFromName_t GetGUIDFromName =
     reinterpret_cast<GetGUIDFromName_t>(Offsets::FUN_GET_GUID_FROM_NAME);
 const ClntObjMgrObjectPtr_t ClntObjMgrObjectPtr =
