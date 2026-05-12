@@ -15,8 +15,8 @@ local DEFAULT_ANGLE = math.pi
 
 local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
 
-local E = Enum and Enum.MinimapBlip
-local BLIP_TYPES = E and {
+local E = Enum.MinimapBlip
+local BLIP_TYPES = {
 	{ type = E.Repair,                label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
 	{ type = E.Vendor,                label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
 	{ type = E.Innkeeper,             label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
@@ -29,7 +29,7 @@ local BLIP_TYPES = E and {
 	{ type = E.StableMaster,          label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
 	{ type = E.Target,                label = TARGET,                icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
 	{ type = E.Focus,                 label = FOCUS,                 icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
-} or {}
+}
 C_Minimap.RegisterIcons(BLIP_TYPES)
 
 local function GetBestTrackingTexture()
@@ -92,8 +92,8 @@ function button:ADDON_LOADED()
 	menu:SetBackdropColor(0.09, 0.09, 0.09, 0.9)
 	menu:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 	menu:Hide()
-	menu:RegisterEvent("MINIMAP_UPDATE_TRACKING")
-	menu:SetScript("OnEvent", function()
+	self:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+	self:SetScript("OnEvent", function()
 		if event == "MINIMAP_UPDATE_TRACKING" then
 			icon:SetTexture(GetBestTrackingTexture())
 		end
@@ -115,19 +115,19 @@ function button:ADDON_LOADED()
 		local tracked = C_Minimap.GetTracked()
 		for i, entry in ipairs(BLIP_TYPES) do
 			local row = CreateFrame("Button", nil, menu)
+			row.blipType = entry.type
 			row:SetWidth(ROW_WIDTH)
 			row:SetHeight(ROW_HEIGHT)
-			-- Blip rows start at index 1 below the Clear All row at index 0.
 			row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + i * ROW_HEIGHT))
 			row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
-			local check = row:CreateTexture(nil, "ARTWORK")
-			check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
-			check:SetWidth(14)
-			check:SetHeight(14)
-			check:SetPoint("LEFT", row, "LEFT", 0, 0)
+			row.check = row:CreateTexture(nil, "ARTWORK")
+			row.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+			row.check:SetWidth(14)
+			row.check:SetHeight(14)
+			row.check:SetPoint("LEFT", row, "LEFT", 0, 0)
 			if not tracked[entry.type] then
-				check:Hide()
+				row.check:Hide()
 			end
 
 			local rowIcon = row:CreateTexture(nil, "ARTWORK")
@@ -139,10 +139,6 @@ function button:ADDON_LOADED()
 			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 			label:SetPoint("LEFT", row, "LEFT", 36, 0)
 			label:SetText(entry.label)
-
-			row.check    = check
-			row.blipType = entry.type
-			row.icon	 = entry.icon
 
 			row:SetScript("OnClick", function()
 				C_Minimap.Toggle(this.blipType)
@@ -206,7 +202,7 @@ function button:ADDON_LOADED()
 	self:SetScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
-	this:UnregisterEvent("ADDON_LOADED")
+	self:UnregisterEvent("ADDON_LOADED")
 end
 
 button:RegisterEvent("ADDON_LOADED")
