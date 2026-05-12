@@ -1044,15 +1044,50 @@ static int __fastcall Script_MinimapBlip_SetFocus(void *L) {
     return 0;
 }
 
+// Walks visible objects to find a unit or player matching `target` by name
+// (case-insensitive). Sets `foundGUID` and stops iteration on first hit.
+// Calling convention mirrors `ObjectEnumProc_h`: __fastcall puts the context
+// in ECX, and the engine pushes guid_low/guid_high on the stack — uint64_t
+// as the second __fastcall arg gets handled stack-side by MSVC, matching.
+struct NameLookupContext {
+    const char *target;
+    uint64_t foundGUID;
+};
+
+static int __fastcall NameLookupCallback(NameLookupContext *ctx, uint64_t guid) {
+    Game::CGObject_C *obj = Game::ClntObjMgrObjectPtr(
+        Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr, guid, 0);
+    if (obj == nullptr)
+        return 1;
+
+    const char *name = obj->vftable->GetName(obj);
+    if (name != nullptr && _stricmp(name, ctx->target) == 0) {
+        ctx->foundGUID = guid;
+        return 0; // stop iteration
+    }
+    return 1;
+}
+
 static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
     if (!Game::Lua::IsString(L, 1)) {
         Game::Lua::Error(L, "Usage: C_Minimap.SetFocusByName(name)");
         return 0;
     }
-    const std::string name = Game::Lua::ToString(L, 1);
-    const uint64_t guid = Game::GetGUIDFromName(name.c_str());
-    if (guid != 0)
-        g_focusGUID = guid;
+    const char *name = Game::Lua::ToString(L, 1);
+    if (name == nullptr || name[0] == '\0') {
+        Game::Lua::Error(L, "Usage: C_Minimap.SetFocusByName(name)");
+        return 0;
+    }
+
+    NameLookupContext ctx = {name, 0};
+    Game::ClntObjMgrEnumVisibleObjects(
+        reinterpret_cast<Game::ClntObjMgrEnumVisibleObjectsCallback_t>(NameLookupCallback), &ctx);
+
+    if (ctx.foundGUID == 0) {
+        Game::Lua::Error(L, "No visible unit by that name.");
+        return 0;
+    }
+    g_focusGUID = ctx.foundGUID;
     return 0;
 }
 
