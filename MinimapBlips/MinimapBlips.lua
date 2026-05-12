@@ -17,18 +17,18 @@ local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. n
 
 local E = Enum.MinimapBlip
 local BLIP_TYPES = {
-	{ type = E.Repair,                label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
-	{ type = E.Vendor,                label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
-	{ type = E.Innkeeper,             label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
-	{ type = E.FlightMaster,          label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = E.Battlemaster,          label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = E.Trainer,               label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
-	{ type = E.Auctioneer,            label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
-	{ type = E.Banker,                label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
-	{ type = E.Mailbox,               label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
-	{ type = E.StableMaster,          label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
-	{ type = E.Target,                label = TARGET,                icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
-	{ type = E.Focus,                 label = FOCUS,                 icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
+	{ type = E.Repair,       label = "Repair",        icon = Icon("Repair"),       		    scale = BLIP_SCALE_TRACKING },
+	{ type = E.Vendor,       label = "Vendor",        icon = "Interface\\Icons\\INV_Misc_Coin_02", scale = BLIP_SCALE },
+	{ type = E.Innkeeper,    label = "Innkeeper",     icon = Icon("Innkeeper"),               scale = BLIP_SCALE_TRACKING },
+	{ type = E.FlightMaster, label = "Flight Master", icon = Icon("FlightMaster"),            scale = BLIP_SCALE_TRACKING },
+	{ type = E.Battlemaster, label = "Battlemaster",  icon = Icon("BattleMaster"),            scale = BLIP_SCALE_TRACKING },
+	{ type = E.Trainer,      label = "Trainer",       icon = Icon("Profession"),              scale = BLIP_SCALE_TRACKING },
+	{ type = E.Auctioneer,   label = "Auctioneer",    icon = Icon("Auctioneer"),              scale = BLIP_SCALE_TRACKING },
+	{ type = E.Banker,       label = "Banker",        icon = Icon("Banker"),                  scale = BLIP_SCALE_TRACKING },
+	{ type = E.Mailbox,      label = "Mailbox",       icon = Icon("Mailbox"),                 scale = BLIP_SCALE_TRACKING },
+	{ type = E.StableMaster, label = "Stable Master", icon = Icon("StableMaster"),            scale = BLIP_SCALE_TRACKING },
+	{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING, hostileIcon = Icon("TargetHostile") },
+	{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
 }
 C_Minimap.RegisterIcons(BLIP_TYPES)
 
@@ -56,7 +56,7 @@ function button:ADDON_LOADED()
 
 	local function PositionButtonAt(angle)
 		self:ClearAllPoints()
-		self:SetPoint("CENTER", Minimap, "CENTER",
+		self:SetPoint("CENTER", self:GetParent(), "CENTER",
 			BUTTON_RADIUS * math.cos(angle), BUTTON_RADIUS * math.sin(angle))
 	end
 
@@ -68,7 +68,7 @@ function button:ADDON_LOADED()
 	border:SetHeight(53)
 	border:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
 
-	local icon = self:CreateTexture("MinimapIconBlipsIcon", "BACKGROUND")
+	local icon = self:CreateTexture(nil, "BACKGROUND")
 	icon:SetWidth(20)
 	icon:SetHeight(20)
 	icon:SetPoint("CENTER", self, "CENTER", 0, 0)
@@ -76,7 +76,7 @@ function button:ADDON_LOADED()
 
 	self:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-	local menu = CreateFrame("Frame", "MinimapBlipsMenu", UIParent)
+	local menu = CreateFrame("Frame", nil, UIParent)
 	menu:SetFrameStrata("FULLSCREEN_DIALOG")
 	menu:SetWidth(ROW_WIDTH + PADDING * 2)
 	-- +1 row for the "Clear All" entry pinned at the top.
@@ -159,17 +159,6 @@ function button:ADDON_LOADED()
 		end
 	end
 
-	local function FollowCursorAroundMinimap()
-		local mx, my = Minimap:GetCenter()
-		if not mx then return end
-		local cx, cy = GetCursorPosition()
-		local scale = Minimap:GetEffectiveScale()
-		cx, cy = cx / scale, cy / scale
-		local angle = math.atan2(cy - my, cx - mx)
-		PositionButtonAt(angle)
-		MinimapBlipsUI.buttonAngle = angle
-	end
-
 	self:SetScript("OnClick", function()
 		if IsShiftKeyDown() then return end
 		if menu:IsShown() then
@@ -182,6 +171,18 @@ function button:ADDON_LOADED()
 		menu:Show()
 	end)
 
+	local function FollowCursorAroundMinimap()
+		local parent = this:GetParent()
+		local mx, my = parent:GetCenter()
+		if not mx then return end
+		local cx, cy = GetCursorPosition()
+		local scale = parent:GetEffectiveScale()
+		cx, cy = cx / scale, cy / scale
+		local angle = math.atan2(cy - my, cx - mx)
+		PositionButtonAt(angle)
+		MinimapBlipsUI.buttonAngle = angle
+	end
+
 	self:SetScript("OnDragStart", function()
 		if not IsShiftKeyDown() then return end
 		GameTooltip:Hide()
@@ -193,7 +194,7 @@ function button:ADDON_LOADED()
 	end)
 
 	self:SetScript("OnEnter", function()
-		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+		GameTooltip:SetOwner(this, "ANCHOR_LEFT")
 		GameTooltip:SetText("Minimap Blips")
 		GameTooltip:AddLine("Shift-drag to move.", 0.7, 0.7, 0.7)
 		GameTooltip:Show()
