@@ -1,56 +1,168 @@
 ---@diagnostic disable: undefined-global, create-global
+if not C_Minimap then
+	DEFAULT_CHAT_FRAME:AddMessage("|cffff4444MinimapBlips:|r VanillaMinimapTracking not found. Addon disabled.")
+	return
+end
 
-local eventFrame = CreateFrame("Frame")
+local BLIP_SCALE          = 1.0
+local BLIP_SCALE_TRACKING = 1.5
 
-local function MinimapBlips_OnAddonLoaded()
-	if not C_Minimap then
-		DEFAULT_CHAT_FRAME:AddMessage("|cffff4444MinimapBlips:|r VanillaMinimapTracking not found. Addon disabled.")
-		return
+local ROW_HEIGHT = 18
+local ROW_WIDTH  = 140
+local PADDING    = 6
+local BUTTON_RADIUS = 73
+local DEFAULT_ANGLE = math.pi
+
+local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
+
+local E = Enum and Enum.MinimapBlip
+local BLIP_TYPES = E and {
+	{ type = E.Repair,                label = "Repair",              icon = Icon("Repair"),       scale = BLIP_SCALE_TRACKING },
+	{ type = E.Vendor,                label = "Vendor",              icon = "Interface\\Icons\\INV_Misc_Coin_02",                   scale = BLIP_SCALE },
+	{ type = E.Innkeeper,             label = "Innkeeper",           icon = Icon("Innkeeper"),    scale = BLIP_SCALE_TRACKING },
+	{ type = E.FlightMaster,          label = "Flight Master",       icon = Icon("FlightMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Battlemaster,          label = "Battlemaster",        icon = Icon("BattleMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Trainer,               label = "Trainer",             icon = Icon("Profession"),   scale = BLIP_SCALE_TRACKING },
+	{ type = E.Auctioneer,            label = "Auctioneer",          icon = Icon("Auctioneer"),   scale = BLIP_SCALE_TRACKING },
+	{ type = E.Banker,                label = "Banker",              icon = Icon("Banker"),       scale = BLIP_SCALE_TRACKING },
+	{ type = E.Mailbox,               label = "Mailbox",             icon = Icon("Mailbox"),                                        scale = BLIP_SCALE_TRACKING },
+	{ type = E.StableMaster,          label = "Stable Master",       icon = Icon("StableMaster"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Target,                label = TARGET,                icon = Icon("Target"),       hostileIcon = Icon("TargetHostile"), scale = BLIP_SCALE_TRACKING },
+	{ type = E.Focus,                 label = FOCUS,                 icon = Icon("Focus"),        scale = BLIP_SCALE_TRACKING },
+} or {}
+C_Minimap.RegisterIcons(BLIP_TYPES)
+
+local function GetBestTrackingTexture()
+	local bestTexture = Icon("None")
+	local tracked = C_Minimap.GetTracked()
+	for i, entry in ipairs(BLIP_TYPES) do
+		if tracked[entry.type] then
+			bestTexture = entry.icon
+		end
 	end
+	return bestTexture
+end
 
-	-- Per-character UI state. Declared in the .toc as SavedVariablesPerCharacter,
-	-- so it's WoW-managed (flushed on logout / `/reload`). Purely the addon's
-	-- own UI prefs — tracking categories live in the DLL's config file.
+local button = CreateFrame("Button", "MinimapIconBlips", Minimap)
+
+function button:ADDON_LOADED()
 	MinimapBlipsUI = MinimapBlipsUI or {}
 
-	local BUTTON_RADIUS = 73
-	local DEFAULT_ANGLE = math.pi -- left of minimap; matches the original (-73, 0) anchor
-
-	local button = CreateFrame("Button", "MinimapIconBlips", Minimap)
-	button:SetWidth(32)
-	button:SetHeight(32)
-	button:SetFrameStrata("MEDIUM")
-	button:SetMovable(true)
-	button:RegisterForDrag("LeftButton")
+	self:SetWidth(32)
+	self:SetHeight(32)
+	self:SetFrameStrata("MEDIUM")
+	self:SetMovable(true)
+	self:RegisterForDrag("LeftButton")
 
 	local function PositionButtonAt(angle)
-		button:ClearAllPoints()
-		button:SetPoint("CENTER", Minimap, "CENTER",
+		self:ClearAllPoints()
+		self:SetPoint("CENTER", Minimap, "CENTER",
 			BUTTON_RADIUS * math.cos(angle), BUTTON_RADIUS * math.sin(angle))
 	end
 
 	PositionButtonAt(MinimapBlipsUI.buttonAngle or DEFAULT_ANGLE)
 
-	local border = button:CreateTexture(nil, "OVERLAY")
+	local border = self:CreateTexture(nil, "OVERLAY")
 	border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 	border:SetWidth(53)
 	border:SetHeight(53)
-	border:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+	border:SetPoint("TOPLEFT", self, "TOPLEFT", 0, 0)
 
-	local icon = button:CreateTexture("MinimapIconBlipsIcon", "BACKGROUND")
+	local icon = self:CreateTexture("MinimapIconBlipsIcon", "BACKGROUND")
 	icon:SetWidth(20)
 	icon:SetHeight(20)
-	icon:SetPoint("CENTER", button, "CENTER", 1, 1)
-	icon:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
-	icon:SetTexCoord(0.05, 0.95, 0.05, 0.95)
+	icon:SetPoint("CENTER", self, "CENTER", 0, 0)
+	icon:SetTexture(GetBestTrackingTexture())
 
-	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+	self:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-	-- Snaps the button to the minimap edge at the angle from the minimap
-	-- center to the cursor. Called per OnUpdate while dragging — keeps the
-	-- button orbiting on the same radius instead of drifting off in straight
-	-- lines like a free-positioned frame would. Persists the angle as it
-	-- goes so the drop position survives logout / `/reload`.
+	local menu = CreateFrame("Frame", "MinimapBlipsMenu", UIParent)
+	menu:SetFrameStrata("FULLSCREEN_DIALOG")
+	menu:SetWidth(ROW_WIDTH + PADDING * 2)
+	-- +1 row for the "Clear All" entry pinned at the top.
+	menu:SetHeight((table.getn(BLIP_TYPES) + 1) * ROW_HEIGHT + PADDING * 2)
+	menu:SetBackdrop({
+		bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile     = true,
+		tileSize = 16,
+		edgeSize = 16,
+		insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+	})
+	menu:SetBackdropColor(0.09, 0.09, 0.09, 0.9)
+	menu:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+	menu:Hide()
+	menu:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+	menu:SetScript("OnEvent", function()
+		if event == "MINIMAP_UPDATE_TRACKING" then
+			icon:SetTexture(GetBestTrackingTexture())
+		end
+	end)
+
+	local function GenerateRows()
+		if menu.rows then return end
+		menu.rows = true
+		local clearRow = CreateFrame("Button", nil, menu)
+		clearRow:SetWidth(ROW_WIDTH)
+		clearRow:SetHeight(ROW_HEIGHT)
+		clearRow:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -PADDING)
+		clearRow:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+		local clearLabel = clearRow:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		clearLabel:SetPoint("CENTER", clearRow, "CENTER", 0, 0)
+		clearLabel:SetText("Clear All")
+		clearRow:SetScript("OnClick", function() C_Minimap.ClearAllTracking() end)
+
+		local tracked = C_Minimap.GetTracked()
+		for i, entry in ipairs(BLIP_TYPES) do
+			local row = CreateFrame("Button", nil, menu)
+			row:SetWidth(ROW_WIDTH)
+			row:SetHeight(ROW_HEIGHT)
+			-- Blip rows start at index 1 below the Clear All row at index 0.
+			row:SetPoint("TOPLEFT", menu, "TOPLEFT", PADDING, -(PADDING + i * ROW_HEIGHT))
+			row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+
+			local check = row:CreateTexture(nil, "ARTWORK")
+			check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+			check:SetWidth(14)
+			check:SetHeight(14)
+			check:SetPoint("LEFT", row, "LEFT", 0, 0)
+			if not tracked[entry.type] then
+				check:Hide()
+			end
+
+			local rowIcon = row:CreateTexture(nil, "ARTWORK")
+			rowIcon:SetTexture(entry.icon)
+			rowIcon:SetWidth(14)
+			rowIcon:SetHeight(14)
+			rowIcon:SetPoint("LEFT", row, "LEFT", 18, 0)
+
+			local label = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("LEFT", row, "LEFT", 36, 0)
+			label:SetText(entry.label)
+
+			row.check    = check
+			row.blipType = entry.type
+			row.icon	 = entry.icon
+
+			row:SetScript("OnClick", function()
+				C_Minimap.Toggle(this.blipType)
+			end)
+
+			row:SetScript("OnEvent", function()
+				if event == "MINIMAP_UPDATE_TRACKING" then
+					if arg1 == "" or arg1 == this.blipType then
+						if C_Minimap.IsTracked(this.blipType) then
+							this.check:Show()
+						else
+							this.check:Hide()
+						end
+					end
+				end
+			end)
+			row:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+		end
+	end
+
 	local function FollowCursorAroundMinimap()
 		local mx, my = Minimap:GetCenter()
 		if not mx then return end
@@ -62,41 +174,44 @@ local function MinimapBlips_OnAddonLoaded()
 		MinimapBlipsUI.buttonAngle = angle
 	end
 
-	button:SetScript("OnClick", function()
-		-- Shift-click is reserved for dragging — swallow it so the menu
-		-- doesn't pop up when the user releases without having dragged.
+	self:SetScript("OnClick", function()
 		if IsShiftKeyDown() then return end
-		MinimapBlipsMenu_Toggle(this)
+		if menu:IsShown() then
+			menu:Hide()
+			return
+		end
+		GenerateRows()
+		menu:ClearAllPoints()
+		menu:SetPoint("TOPRIGHT", self, "TOPLEFT", 0, -5)
+		menu:Show()
 	end)
 
-	button:SetScript("OnDragStart", function()
+	self:SetScript("OnDragStart", function()
 		if not IsShiftKeyDown() then return end
 		GameTooltip:Hide()
 		this:SetScript("OnUpdate", FollowCursorAroundMinimap)
 	end)
 
-	button:SetScript("OnDragStop", function()
+	self:SetScript("OnDragStop", function()
 		this:SetScript("OnUpdate", nil)
 	end)
 
-	button:SetScript("OnEnter", function()
-		GameTooltip:SetOwner(this, "ANCHOR_LEFT")
+	self:SetScript("OnEnter", function()
+		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:SetText("Minimap Blips")
 		GameTooltip:AddLine("Shift-drag to move.", 0.7, 0.7, 0.7)
 		GameTooltip:Show()
 	end)
 
-	button:SetScript("OnLeave", function()
+	self:SetScript("OnLeave", function()
 		GameTooltip:Hide()
 	end)
-
-	MinimapBlipsMenu_RegisterIcons()
+	this:UnregisterEvent("ADDON_LOADED")
 end
 
-eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:SetScript("OnEvent", function()
+button:RegisterEvent("ADDON_LOADED")
+button:SetScript("OnEvent", function()
 	if event == "ADDON_LOADED" and arg1 == "MinimapBlips" then
-		MinimapBlips_OnAddonLoaded()
-		eventFrame:UnregisterEvent("ADDON_LOADED")
+		this:ADDON_LOADED()
 	end
 end)

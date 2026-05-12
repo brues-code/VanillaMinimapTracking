@@ -5,5 +5,4 @@
 ## Notes: Show Minimap Blips
 ## SavedVariablesPerCharacter: MinimapBlipsUI
 
-MinimapBlipsMenu.lua
 MinimapBlips.lua
