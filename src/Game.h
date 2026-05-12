@@ -516,7 +516,7 @@ extern const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs;
 extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
 extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
 
-void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float scale, bool gray);
+void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray);
 
 extern C3Vector *s_blipVertices;
 extern TexCoord &texCoords;

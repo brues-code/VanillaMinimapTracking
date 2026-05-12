@@ -37,8 +37,19 @@ static void *OnLayerTrackUpdate_ChangedGate_o = nullptr;
 static void *OnLayerTrackUpdate_PreShowGate_o = nullptr;
 static void *OnLayerTrackUpdate_AppendToTooltipBuffer_o = nullptr;
 
-struct Blip {
+// Registered-texture record. `gxTex` is resolved eagerly at load time so
+// per-frame draws skip the `TextureGetGxTex` + `CStatus` round-trip we'd
+// otherwise pay for every blip. `texture` is kept so we can re-resolve if
+// `gxTex` ever comes back null (e.g. engine not yet ready at load time).
+struct TextureCacheEntry {
     Game::HTEXTURE__ *texture;
+    mutable Game::CGxTex *gxTex;
+};
+
+struct Blip {
+    // Pointer into `g_textureCache` — stable across map inserts (unordered_map
+    // pointer-stability guarantee) and never erased.
+    const TextureCacheEntry *cacheEntry;
     float scale;
 };
 
@@ -67,7 +78,7 @@ struct BlipHoverState {
 };
 
 static bool g_hooksInstalled = false;
-static std::unordered_map<std::string, Game::HTEXTURE__ *> g_textureCache;
+static std::unordered_map<std::string, TextureCacheEntry> g_textureCache;
 static std::unordered_map<std::string, Blip> g_registeredIcons;
 static bool g_targetTracking = false;
 static uint64_t g_currentTargetGUID = 0;
@@ -78,8 +89,17 @@ static std::unordered_set<std::string> g_enabledTypes;
 static std::string g_configPath;
 static bool g_configLoaded = false;
 static Blip g_targetHostileBlip = {nullptr, 1.0F};
-static std::unordered_map<uint32_t, Blip> g_trackedUnitFlagsBlips;
+// Tracked-NPC flag list, sorted by flag value descending. The minimap
+// "highest flag wins" rule lets us break on the first match instead of
+// scanning every entry. N is tiny (≤ ~10), so linear insert/erase in
+// ApplyTrack is cheaper than maintaining a sorted+hash dual structure.
+static std::vector<std::pair<uint32_t, Blip>> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
+// OR of every flag in g_trackedUnitFlagsBlips; (unit.m_npcFlags & this) == 0
+// is the fast-path bail in CheckObject. Bitmask of (1 << type) for every type
+// in g_trackedGameObjectTypesBlips; GO types are 0–30 so fit in 32 bits.
+static uint32_t g_combinedNpcFlagMask = 0;
+static uint32_t g_combinedGameObjectTypeBits = 0;
 static std::vector<TrackedObjectData> g_trackedObjectsData;
 static BlipHoverState g_blipHoverState;
 
@@ -193,7 +213,7 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
                 Blip blip = iconIt->second;
-                if (g_targetHostileBlip.texture != nullptr && IsTargetHostile(unitptr)) {
+                if (g_targetHostileBlip.cacheEntry != nullptr && IsTargetHostile(unitptr)) {
                     blip = g_targetHostileBlip;
                 }
                 TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip,
@@ -234,25 +254,28 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
 
     if (objptr->m_objectType == Game::OBJECT_TYPE::UNIT) {
         const auto *unitData = reinterpret_cast<Game::CGUnitData *>(objptr->m_data);
-        uint32_t matchedFlag = 0;
-        Blip blip;
+        // Fast bail before scanning the per-flag list. Skips the vast
+        // majority of city NPCs (anyone not flagged for something tracked).
+        if ((unitData->m_npcFlags & g_combinedNpcFlagMask) == 0)
+            return false;
 
-        // Units can have multiple flags (ex: repair and vendor), we find the strongest one
+        // Vector is sorted by flag-value descending — first match wins,
+        // matching the engine's "stable master (0x2000) beats vendor (0x4)" rule.
         for (const auto &[flag, tracked] : g_trackedUnitFlagsBlips) {
             if (unitData->m_npcFlags & flag) {
-                if (flag > matchedFlag) {
-                    matchedFlag = flag;
-                    blip = tracked;
-                }
+                TrackObject(info, objptr, guid, tracked,
+                            FindBlipTypeNameByEngine(BlipKind::NpcFlag, flag));
+                return true;
             }
-        }
-        if (matchedFlag != 0) {
-            TrackObject(info, objptr, guid, blip,
-                        FindBlipTypeNameByEngine(BlipKind::NpcFlag, matchedFlag));
-            return true;
         }
     } else if (objptr->m_objectType == Game::OBJECT_TYPE::GAMEOBJECT) {
         const auto *gameObjectData = reinterpret_cast<Game::CGGameObjectData *>(objptr->m_data);
+        // 1.12 GO types go up to AURA_GENERATOR (30); the > 31 guard keeps
+        // the shift defined in case a future patch widens the enum.
+        if (gameObjectData->m_type > 31 ||
+            (g_combinedGameObjectTypeBits & (1u << gameObjectData->m_type)) == 0)
+            return false;
+
         const auto it = g_trackedGameObjectTypesBlips.find(gameObjectData->m_type);
         if (it != g_trackedGameObjectTypesBlips.end()) {
             TrackObject(info, objptr, guid, it->second,
@@ -268,8 +291,10 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
     // expensive calls. To do it in RenderObjectBlips, we can use DNInfo for current position,
     // MinimapGetWorldRadius() for world radius and minimapPtr +0x7C for layout scale.
     for (const auto &objData : g_trackedObjectsData) {
-        Game::DrawMinimapTexture(objData.blip.texture, objData.minimapPos, objData.blip.scale,
-                                 objData.isInDifferentArea);
+        if (objData.blip.cacheEntry == nullptr)
+            continue;
+        Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
+                                 objData.blip.scale, objData.isInDifferentArea);
     }
 }
 
@@ -496,9 +521,25 @@ static bool UninstallHooks() {
     return TRUE;
 }
 
-static Game::HTEXTURE__ *LoadTextureCached(const std::string &texturePathLower) {
+// Resolves and caches the engine-side `CGxTex *` for an entry. Called once
+// at load and again only if the eager resolve returned null (engine wasn't
+// ready). Returning the same null is fine — the per-frame draw path bails
+// silently when `gxTex` is null.
+static void ResolveGxTex(const TextureCacheEntry &entry) {
+    if (entry.gxTex != nullptr || entry.texture == nullptr)
+        return;
+    Game::CStatus status;
+    Game::CGxTex *gxTex = Game::TextureGetGxTex(entry.texture, 1, &status);
+    if (status.ok())
+        entry.gxTex = gxTex;
+}
+
+static const TextureCacheEntry *LoadTextureCached(const std::string &texturePathLower) {
     if (const auto it = g_textureCache.find(texturePathLower); it != g_textureCache.end()) {
-        return it->second;
+        // Retry the GxTex resolve in case the first attempt happened before
+        // the engine was ready. Cheap when already resolved (early return).
+        ResolveGxTex(it->second);
+        return &it->second;
     }
 
     Game::CGxTexFlags texFlags(Game::EGxTexFilter::GxTex_Nearest, 0, 0, 0, 0, 0, 0, 1);
@@ -508,8 +549,9 @@ static Game::HTEXTURE__ *LoadTextureCached(const std::string &texturePathLower) 
     if (!status.ok()) {
         return nullptr;
     }
-    g_textureCache[texturePathLower] = texture;
-    return texture;
+    auto [it, inserted] = g_textureCache.emplace(texturePathLower, TextureCacheEntry{texture, nullptr});
+    ResolveGxTex(it->second);
+    return &it->second;
 }
 
 static bool EnsureConfigLoaded(); // defined below; forward-declared so the
@@ -532,13 +574,13 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
         scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
     }
 
-    Game::HTEXTURE__ *texture = LoadTextureCached(texturePath);
-    if (!texture) {
+    const TextureCacheEntry *entry = LoadTextureCached(texturePath);
+    if (entry == nullptr) {
         Game::Lua::Error(L, "Couldn't load texture.");
         return 0;
     }
 
-    g_registeredIcons[typeName] = {texture, scale};
+    g_registeredIcons[typeName] = {entry, scale};
 
     // Pull saved intent from disk (if not already), then bring this type's
     // runtime state up if the addon previously had it tracked. Order matters:
@@ -602,16 +644,16 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
             if (hasType && hasIcon) {
                 std::transform(iconPath.begin(), iconPath.end(), iconPath.begin(),
                                ::tolower);
-                if (Game::HTEXTURE__ *tex = LoadTextureCached(iconPath)) {
-                    g_registeredIcons[typeName] = {tex, scale};
+                if (const TextureCacheEntry *entry = LoadTextureCached(iconPath)) {
+                    g_registeredIcons[typeName] = {entry, scale};
                 }
             }
 
             if (hasHostile) {
                 std::transform(hostileIcon.begin(), hostileIcon.end(), hostileIcon.begin(),
                                ::tolower);
-                if (Game::HTEXTURE__ *htex = LoadTextureCached(hostileIcon)) {
-                    g_targetHostileBlip = {htex, scale};
+                if (const TextureCacheEntry *entry = LoadTextureCached(hostileIcon)) {
+                    g_targetHostileBlip = {entry, scale};
                 }
             }
         }
@@ -640,13 +682,13 @@ static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
         scale = static_cast<float>(Game::Lua::ToNumber(L, 2));
     }
 
-    Game::HTEXTURE__ *texture = LoadTextureCached(texturePath);
-    if (!texture) {
+    const TextureCacheEntry *entry = LoadTextureCached(texturePath);
+    if (entry == nullptr) {
         Game::Lua::Error(L, "Couldn't load texture.");
         return 0;
     }
 
-    g_targetHostileBlip = {texture, scale};
+    g_targetHostileBlip = {entry, scale};
     return 0;
 }
 
@@ -683,18 +725,45 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         return ApplyResult::Applied;
     }
 
-    auto &tracked = (def->kind == BlipKind::NpcFlag) ? g_trackedUnitFlagsBlips
-                                                      : g_trackedGameObjectTypesBlips;
-    const bool currently = tracked.find(def->engineValue) != tracked.end();
-    if (enabled == currently)
-        return ApplyResult::NoChange;
-    if (enabled) {
-        const Blip *icon = needIcon();
-        if (icon == nullptr)
-            return ApplyResult::IconMissing;
-        tracked[def->engineValue] = *icon;
+    if (def->kind == BlipKind::NpcFlag) {
+        const auto it = std::find_if(
+            g_trackedUnitFlagsBlips.begin(), g_trackedUnitFlagsBlips.end(),
+            [&](const auto &p) { return p.first == def->engineValue; });
+        const bool currently = it != g_trackedUnitFlagsBlips.end();
+        if (enabled == currently)
+            return ApplyResult::NoChange;
+        if (enabled) {
+            const Blip *icon = needIcon();
+            if (icon == nullptr)
+                return ApplyResult::IconMissing;
+            // Keep descending order so the CheckObject loop breaks on the
+            // highest-priority flag (the "stable master beats vendor" rule).
+            const auto pos = std::lower_bound(
+                g_trackedUnitFlagsBlips.begin(), g_trackedUnitFlagsBlips.end(), def->engineValue,
+                [](const auto &p, uint32_t f) { return p.first > f; });
+            g_trackedUnitFlagsBlips.insert(pos, {def->engineValue, *icon});
+            g_combinedNpcFlagMask |= def->engineValue;
+        } else {
+            g_trackedUnitFlagsBlips.erase(it);
+            g_combinedNpcFlagMask &= ~def->engineValue;
+        }
     } else {
-        tracked.erase(def->engineValue);
+        // BlipKind::GameObject
+        const bool currently =
+            g_trackedGameObjectTypesBlips.find(def->engineValue) !=
+            g_trackedGameObjectTypesBlips.end();
+        if (enabled == currently)
+            return ApplyResult::NoChange;
+        if (enabled) {
+            const Blip *icon = needIcon();
+            if (icon == nullptr)
+                return ApplyResult::IconMissing;
+            g_trackedGameObjectTypesBlips[def->engineValue] = *icon;
+            g_combinedGameObjectTypeBits |= (1u << def->engineValue);
+        } else {
+            g_trackedGameObjectTypesBlips.erase(def->engineValue);
+            g_combinedGameObjectTypeBits &= ~(1u << def->engineValue);
+        }
     }
     recordEnabled(enabled);
     return ApplyResult::Applied;
@@ -1039,6 +1108,8 @@ void Reset() {
     g_targetHostileBlip = {nullptr, 1.0F};
     g_trackedUnitFlagsBlips.clear();
     g_trackedGameObjectTypesBlips.clear();
+    g_combinedNpcFlagMask = 0;
+    g_combinedGameObjectTypeBits = 0;
     g_trackedObjectsData.clear();
     g_targetTracking = false;
     g_currentTargetGUID = 0;

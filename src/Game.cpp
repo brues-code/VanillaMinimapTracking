@@ -152,7 +152,10 @@ C3Vector &normal = *reinterpret_cast<C3Vector *>(Offsets::CONST_NORMAL_VEC3);
 unsigned short *vertIndices = reinterpret_cast<unsigned short *>(Offsets::CONST_VERT_INDICES);
 const float &BLIP_HALF = *reinterpret_cast<float *>(Offsets::CONST_BLIP_HALF);
 
-void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float scale, bool gray) {
+void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray) {
+    if (gxTex == nullptr)
+        return;
+
     CImVector color = {0xFF, 0xFF, 0xFF, 0xFF};
     if (gray) {
         color = {0xFF, 0xB0, 0xB0, 0xB0};
@@ -164,11 +167,6 @@ void DrawMinimapTexture(HTEXTURE__ *texture, C2Vector minimapPosition, float sca
         vertices[i].y = minimapPosition.y + scale * s_blipVertices[i].y;
         vertices[i].z = scale * s_blipVertices[i].z;
     }
-
-    CStatus status;
-    CGxTex *gxTex = TextureGetGxTex(texture, 1, &status);
-    if (!status.ok())
-        return;
 
     GxRsSet(GxRs_Texture0, gxTex);
 
