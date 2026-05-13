@@ -88,7 +88,6 @@ static uint64_t g_playerGUID = 0;
 static std::unordered_set<std::string> g_enabledTypes;
 static std::string g_configPath;
 static bool g_configLoaded = false;
-static Blip g_targetHostileBlip = {nullptr, 1.0F};
 // Tracked-NPC flag list, sorted by flag value descending. The minimap
 // "highest flag wins" rule lets us break on the first match instead of
 // scanning every entry. N is tiny (≤ ~10), so linear insert/erase in
@@ -190,20 +189,6 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
          typeName ? typeName : "", blip});
 }
 
-static bool IsTargetHostile(Game::CGUnit_C *unitptr) {
-    const uint64_t playerGUID = Game::GetGUIDFromName("player");
-    if (playerGUID == 0)
-        return false;
-
-    auto *playerPtr = reinterpret_cast<Game::CGUnit_C *>(Game::ClntObjMgrObjectPtr(
-        Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr,
-        playerGUID, 0));
-    if (playerPtr == nullptr)
-        return false;
-
-    return !Game::CGUnit_C_CanAssist(playerPtr, unitptr);
-}
-
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
     if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID &&
         guid != g_playerGUID) {
@@ -213,9 +198,6 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
                 Blip blip = iconIt->second;
-                if (g_targetHostileBlip.cacheEntry != nullptr && IsTargetHostile(unitptr)) {
-                    blip = g_targetHostileBlip;
-                }
                 TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip,
                             "target");
                 return true;
@@ -591,14 +573,11 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     return 0;
 }
 
-// Bulk-register icons from a Lua array of `{ type, icon, scale, hostileIcon? }`
-// entries. Equivalent to a loop of C_Minimap.RegisterIcon (and
-// C_Minimap.RegisterHostileIcon when `hostileIcon` is present), but with
-// only one Lua→C transition for the whole batch.
+// Bulk-register icons from a Lua array of `{ type, icon, scale }`
+// entries. Equivalent to a loop of C_Minimap.RegisterIcon
 static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     if (!Game::Lua::IsTable(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcons({ {type, icon, scale, "
-                            "[hostileIcon]}, ... })");
+        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcons({ {type, icon, scale}, ... })");
         return 0;
     }
 
@@ -635,25 +614,16 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     while (Game::Lua::Next(L, 1) != 0) {
         // Stack: [array, key, entry]
         if (Game::Lua::IsTable(L, -1)) {
-            std::string typeName, iconPath, hostileIcon;
+            std::string typeName, iconPath;
             const bool hasType = readField(-1, "type", typeName);
             const bool hasIcon = readField(-1, "icon", iconPath);
             const float scale = readScale(-1);
-            const bool hasHostile = readField(-1, "hostileIcon", hostileIcon);
 
             if (hasType && hasIcon) {
                 std::transform(iconPath.begin(), iconPath.end(), iconPath.begin(),
                                ::tolower);
                 if (const TextureCacheEntry *entry = LoadTextureCached(iconPath)) {
                     g_registeredIcons[typeName] = {entry, scale};
-                }
-            }
-
-            if (hasHostile) {
-                std::transform(hostileIcon.begin(), hostileIcon.end(), hostileIcon.begin(),
-                               ::tolower);
-                if (const TextureCacheEntry *entry = LoadTextureCached(hostileIcon)) {
-                    g_targetHostileBlip = {entry, scale};
                 }
             }
         }
@@ -665,30 +635,6 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     // types whose icons were just supplied.
     EnsureConfigLoaded();
     SyncRuntimeFromIntent();
-    return 0;
-}
-
-static int __fastcall Script_MinimapBlip_RegisterHostileIcon(void *L) {
-    if (!Game::Lua::IsString(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Minimap.RegisterHostileIcon(icon [, scale])");
-        return 0;
-    }
-
-    std::string texturePath = Game::Lua::ToString(L, 1);
-    std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
-
-    float scale = 1.0F;
-    if (Game::Lua::IsNumber(L, 2)) {
-        scale = static_cast<float>(Game::Lua::ToNumber(L, 2));
-    }
-
-    const TextureCacheEntry *entry = LoadTextureCached(texturePath);
-    if (entry == nullptr) {
-        Game::Lua::Error(L, "Couldn't load texture.");
-        return 0;
-    }
-
-    g_targetHostileBlip = {entry, scale};
     return 0;
 }
 
@@ -1110,8 +1056,6 @@ static void RegisterLuaFunctions() {
     constexpr const char *NS = "C_Minimap";
     Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
     Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
-    Game::Lua::RegisterTableFunction(NS, "RegisterHostileIcon",
-                                     &Script_MinimapBlip_RegisterHostileIcon);
     Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
     Game::Lua::RegisterTableFunction(NS, "Toggle", &Script_MinimapBlip_Toggle);
     Game::Lua::RegisterTableFunction(NS, "ClearAllTracking",
@@ -1140,7 +1084,6 @@ static const Game::ModuleAutoRegister kBlipsAutoRegister{&RegisterLuaFunctions};
 
 void Reset() {
     g_registeredIcons.clear();
-    g_targetHostileBlip = {nullptr, 1.0F};
     g_trackedUnitFlagsBlips.clear();
     g_trackedGameObjectTypesBlips.clear();
     g_combinedNpcFlagMask = 0;

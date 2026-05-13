@@ -27,7 +27,7 @@ local BLIP_TYPES = {
 	{ type = E.Banker,       label = "Banker",        icon = Icon("Banker"),                  scale = BLIP_SCALE_TRACKING },
 	{ type = E.Mailbox,      label = "Mailbox",       icon = Icon("Mailbox"),                 scale = BLIP_SCALE_TRACKING },
 	{ type = E.StableMaster, label = "Stable Master", icon = Icon("StableMaster"),            scale = BLIP_SCALE_TRACKING },
-	{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING, hostileIcon = Icon("TargetHostile") },
+	{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING },
 	{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
 }
 C_Minimap.RegisterIcons(BLIP_TYPES)

@@ -29,8 +29,7 @@ a small button next to the minimap.
 The current category menu (managed in
 [`MinimapBlips/MinimapBlipsMenu.lua`](MinimapBlips/MinimapBlipsMenu.lua)):
 
-- **Target** — your current target. A separate hostile-target icon is used
-  if you can't assist the target (uses `CGUnit_C::CanAssist`).
+- **Target** — your current target.
 - **Focus** — a pseudo-focus unit (vanilla 1.12.1 has no native focus). Set
   with `C_Minimap.SetFocus([unit])` (defaults to `"target"`) or
   `C_Minimap.SetFocusByName(name)`.
@@ -78,9 +77,8 @@ work too if you'd rather skip the enum.
 
 | Function                                                              | Returns             | Notes                                                                       |
 |-----------------------------------------------------------------------|---------------------|-----------------------------------------------------------------------------|
-| `C_Minimap.RegisterIcons({{type, icon, scale, hostileIcon?}, ...})` | —                   | Bulk-register icons in one call. `hostileIcon` is only honored on `target`. |
-| `C_Minimap.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |
-| `C_Minimap.RegisterHostileIcon(icon, scale)`                      | —                   | Sets the hostile-target variant separately.                                 |
+| `C_Minimap.RegisterIcons({{type, icon, scale}, ...})` | —                   | Bulk-register icons in one call.  |
+| `C_Minimap.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |                               |
 | `C_Minimap.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Saved on UI shutdown (logout / `/reload`).  |
 | `C_Minimap.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
 | `C_Minimap.ClearAllTracking()`                                     | —                   | Disables every currently-tracked category. Fires one `MINIMAP_UPDATE_TRACKING`. |
