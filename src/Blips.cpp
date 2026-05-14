@@ -1025,6 +1025,13 @@ static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
         return 0;
     }
 
+    // The object manager is NULL on the glue/character-select screen and the
+    // engine's enum function crashes on the first deref. Bail cleanly instead.
+    if (*reinterpret_cast<void *const *>(Offsets::VAR_OBJECT_MANAGER_PTR) == nullptr) {
+        Game::Lua::Error(L, "Not in world.");
+        return 0;
+    }
+
     NameLookupContext ctx = {name, 0};
     Game::ClntObjMgrEnumVisibleObjects(
         reinterpret_cast<Game::ClntObjMgrEnumVisibleObjectsCallback_t>(NameLookupCallback), &ctx);

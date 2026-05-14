@@ -72,6 +72,13 @@ enum Offsets {
 
     VAR_LUA_STATE = 0x00CEEF74,
 
+    // Object-manager base pointer. NULL on the glue / character-select
+    // screen — engine functions like `ClntObjMgrEnumVisibleObjects` and
+    // `ClntObjMgrObjectPtr` deref this unconditionally on entry, so any
+    // synchronous call to them from a Lua handler must null-check this
+    // first or risk an access violation pre-login.
+    VAR_OBJECT_MANAGER_PTR = 0x00B41414,
+
     // Engine globals that the SavedVariables/AddOns.txt path-builder at
     // 0x0051EBE0 uses to format `WTF\Account\<account>\<realm>\<character>`.
     //
