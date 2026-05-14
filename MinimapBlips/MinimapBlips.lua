@@ -14,34 +14,44 @@ local BUTTON_RADIUS = 73
 local DEFAULT_ANGLE = math.pi
 
 local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
+local NONE_ICON = Icon("None")
 
-local E = Enum.MinimapBlip
-local BLIP_TYPES = {
-	{ type = E.Repair,       label = "Repair",        icon = Icon("Repair"),       		    scale = BLIP_SCALE_TRACKING },
-	{ type = E.Vendor,       label = "Vendor",        icon = "Interface\\Icons\\INV_Misc_Coin_02", scale = BLIP_SCALE },
-	{ type = E.Innkeeper,    label = "Innkeeper",     icon = Icon("Innkeeper"),               scale = BLIP_SCALE_TRACKING },
-	{ type = E.FlightMaster, label = "Flight Master", icon = Icon("FlightMaster"),            scale = BLIP_SCALE_TRACKING },
-	{ type = E.Battlemaster, label = "Battlemaster",  icon = Icon("BattleMaster"),            scale = BLIP_SCALE_TRACKING },
-	{ type = E.Trainer,      label = "Trainer",       icon = Icon("Profession"),              scale = BLIP_SCALE_TRACKING },
-	{ type = E.Auctioneer,   label = "Auctioneer",    icon = Icon("Auctioneer"),              scale = BLIP_SCALE_TRACKING },
-	{ type = E.Banker,       label = "Banker",        icon = Icon("Banker"),                  scale = BLIP_SCALE_TRACKING },
-	{ type = E.Mailbox,      label = "Mailbox",       icon = Icon("Mailbox"),                 scale = BLIP_SCALE_TRACKING },
-	{ type = E.StableMaster, label = "Stable Master", icon = Icon("StableMaster"),            scale = BLIP_SCALE_TRACKING },
-	{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING },
-	{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
-}
-C_Minimap.RegisterIcons(BLIP_TYPES)
-local NUM_BLIPS = table.getn(BLIP_TYPES)
+-- Register icons with the engine once at load. The registration table is
+-- scoped to this `do` block so the rest of the file can't accidentally
+-- read from it — the source of truth lives on the engine side, and we
+-- ask for it back via `GetIconList` below. Swapping out the registration
+-- source (e.g. loading icons from saved variables or a server payload)
+-- means changing only this block.
+do
+	local E = Enum.MinimapBlip
+	C_Minimap.RegisterIcons({
+		{ type = E.Repair,       label = "Repair",        icon = Icon("Repair"),       		    scale = BLIP_SCALE_TRACKING },
+		{ type = E.Vendor,       label = "Vendor",        icon = "Interface\\Icons\\INV_Misc_Coin_02", scale = BLIP_SCALE },
+		{ type = E.Innkeeper,    label = "Innkeeper",     icon = Icon("Innkeeper"),               scale = BLIP_SCALE_TRACKING },
+		{ type = E.FlightMaster, label = "Flight Master", icon = Icon("FlightMaster"),            scale = BLIP_SCALE_TRACKING },
+		{ type = E.Battlemaster, label = "Battlemaster",  icon = Icon("BattleMaster"),            scale = BLIP_SCALE_TRACKING },
+		{ type = E.Trainer,      label = "Trainer",       icon = Icon("Profession"),              scale = BLIP_SCALE_TRACKING },
+		{ type = E.Auctioneer,   label = "Auctioneer",    icon = Icon("Auctioneer"),              scale = BLIP_SCALE_TRACKING },
+		{ type = E.Banker,       label = "Banker",        icon = Icon("Banker"),                  scale = BLIP_SCALE_TRACKING },
+		{ type = E.Mailbox,      label = "Mailbox",       icon = Icon("Mailbox"),                 scale = BLIP_SCALE_TRACKING },
+		{ type = E.StableMaster, label = "Stable Master", icon = Icon("StableMaster"),            scale = BLIP_SCALE_TRACKING },
+		{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING },
+		{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
+	})
+end
+
+local ICONS = C_Minimap.GetIconList()
+local NUM_BLIPS = table.getn(ICONS)
 
 local function GetBestTrackingTexture()
 	local tracked = C_Minimap.GetTracked()
 	for i = NUM_BLIPS, 1, -1 do
-		local entry = BLIP_TYPES[i]
+		local entry = ICONS[i]
 		if tracked[entry.type] then
 			return entry.icon
 		end
 	end
-	return Icon("None")
+	return NONE_ICON
 end
 
 local button = CreateFrame("Button", "MinimapIconBlips", Minimap)
@@ -114,7 +124,7 @@ function button:ADDON_LOADED()
 		clearRow:SetScript("OnClick", function() C_Minimap.ClearAllTracking() end)
 
 		local tracked = C_Minimap.GetTracked()
-		for i, entry in ipairs(BLIP_TYPES) do
+		for i, entry in ipairs(ICONS) do
 			local row = CreateFrame("Button", nil, menu)
 			row.blipType = entry.type
 			row:SetWidth(ROW_WIDTH)

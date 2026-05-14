@@ -53,6 +53,16 @@ struct Blip {
     float scale;
 };
 
+// One per Lua-registered icon. Holds the data addons need to read back via
+// `GetIconList` (label, original icon path) plus the engine handles needed
+// at draw time. Kept off the hot per-tracked-object `Blip` struct so we
+// don't copy the strings into every `TrackedObjectData` each enum pass.
+struct IconRegistration {
+    std::string label;
+    std::string iconPath;
+    Blip blip;
+};
+
 struct TrackedObjectData {
     uint64_t guid;
     Game::C2Vector minimapPos;
@@ -79,7 +89,11 @@ struct BlipHoverState {
 
 static bool g_hooksInstalled = false;
 static std::unordered_map<std::string, TextureCacheEntry> g_textureCache;
-static std::unordered_map<std::string, Blip> g_registeredIcons;
+static std::unordered_map<std::string, IconRegistration> g_registeredIcons;
+// Registration order, for `GetIconList` to return entries in the same order
+// the addon passed them to `RegisterIcons` — addons rely on this to drive
+// menu layout and the late-wins priority of `GetBestTrackingTexture`.
+static std::vector<std::string> g_iconOrder;
 static bool g_targetTracking = false;
 static uint64_t g_currentTargetGUID = 0;
 static bool g_focusTracking = false;
@@ -197,9 +211,8 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
-                Blip blip = iconIt->second;
-                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid, blip,
-                            "target");
+                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
+                            iconIt->second.blip, "target");
                 return true;
             }
         }
@@ -213,7 +226,7 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
                 TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
-                            iconIt->second, "focus");
+                            iconIt->second.blip, "focus");
                 return true;
             }
         }
@@ -540,9 +553,29 @@ static bool EnsureConfigLoaded(); // defined below; forward-declared so the
                                   // public Script_* entry points can call it
 static void SyncRuntimeFromIntent();
 
+// Inserts or updates a registration entry. First registration of a given
+// type name appends to `g_iconOrder`; re-registration updates fields in
+// place and leaves the order untouched. Returns false if the texture
+// failed to load (caller decides whether that's fatal).
+static bool RegisterIconInternal(const std::string &typeName, const std::string &iconPath,
+                                 const std::string &label, float scale) {
+    const TextureCacheEntry *entry = LoadTextureCached(iconPath);
+    if (entry == nullptr)
+        return false;
+
+    auto [it, inserted] = g_registeredIcons.emplace(
+        typeName, IconRegistration{label, iconPath, {entry, scale}});
+    if (inserted) {
+        g_iconOrder.push_back(typeName);
+    } else {
+        it->second = IconRegistration{label, iconPath, {entry, scale}};
+    }
+    return true;
+}
+
 static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
     if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcon(trackingType, icon [, scale])");
+        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcon(trackingType, icon [, scale [, label]])");
         return 0;
     }
 
@@ -556,13 +589,17 @@ static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
         scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
     }
 
-    const TextureCacheEntry *entry = LoadTextureCached(texturePath);
-    if (entry == nullptr) {
+    std::string label;
+    if (Game::Lua::IsString(L, 4)) {
+        if (const char *s = Game::Lua::ToString(L, 4)) {
+            label = s;
+        }
+    }
+
+    if (!RegisterIconInternal(typeName, texturePath, label, scale)) {
         Game::Lua::Error(L, "Couldn't load texture.");
         return 0;
     }
-
-    g_registeredIcons[typeName] = {entry, scale};
 
     // Pull saved intent from disk (if not already), then bring this type's
     // runtime state up if the addon previously had it tracked. Order matters:
@@ -614,17 +651,16 @@ static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
     while (Game::Lua::Next(L, 1) != 0) {
         // Stack: [array, key, entry]
         if (Game::Lua::IsTable(L, -1)) {
-            std::string typeName, iconPath;
+            std::string typeName, iconPath, label;
             const bool hasType = readField(-1, "type", typeName);
             const bool hasIcon = readField(-1, "icon", iconPath);
+            readField(-1, "label", label); // optional; empty string if absent
             const float scale = readScale(-1);
 
             if (hasType && hasIcon) {
                 std::transform(iconPath.begin(), iconPath.end(), iconPath.begin(),
                                ::tolower);
-                if (const TextureCacheEntry *entry = LoadTextureCached(iconPath)) {
-                    g_registeredIcons[typeName] = {entry, scale};
-                }
+                RegisterIconInternal(typeName, iconPath, label, scale);
             }
         }
         Game::Lua::SetTop(L, -2); // pop value, keep key for next iteration
@@ -657,7 +693,7 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
 
     auto needIcon = [&]() -> const Blip * {
         const auto it = g_registeredIcons.find(typeName);
-        return (it == g_registeredIcons.end()) ? nullptr : &it->second;
+        return (it == g_registeredIcons.end()) ? nullptr : &it->second.blip;
     };
 
     if (def->kind == BlipKind::Special) {
@@ -881,6 +917,41 @@ static int __fastcall Script_MinimapBlip_ListVisibleGUIDs(void *L) {
     return 1;
 }
 
+// Returns a Lua array of `{type, label, icon}` tables in registration order
+// — same shape addons originally passed to `RegisterIcons`. Lets the addon
+// stop carrying its own copy of the icon list and read it back from the
+// engine instead, so the source of truth lives in one place.
+static int __fastcall Script_MinimapBlip_GetIconList(void *L) {
+    Game::Lua::SetTop(L, 0);
+    Game::Lua::NewTable(L);
+    int idx = 1;
+    for (const auto &typeName : g_iconOrder) {
+        const auto it = g_registeredIcons.find(typeName);
+        if (it == g_registeredIcons.end())
+            continue;
+        const auto &reg = it->second;
+
+        Game::Lua::PushNumber(L, static_cast<double>(idx));
+        Game::Lua::NewTable(L);
+
+        Game::Lua::PushString(L, "type");
+        Game::Lua::PushString(L, typeName.c_str());
+        Game::Lua::SetTable(L, -3);
+
+        Game::Lua::PushString(L, "label");
+        Game::Lua::PushString(L, reg.label.c_str());
+        Game::Lua::SetTable(L, -3);
+
+        Game::Lua::PushString(L, "icon");
+        Game::Lua::PushString(L, reg.iconPath.c_str());
+        Game::Lua::SetTable(L, -3);
+
+        Game::Lua::SetTable(L, -3);
+        idx++;
+    }
+    return 1;
+}
+
 // Returns a Lua set keyed by lowercase type name (`{ target = 1, vendor = 1 }`).
 // Lets callers do a direct `tracked[name]` lookup without building their own
 // set from a list.
@@ -1069,6 +1140,7 @@ static void RegisterLuaFunctions() {
                                      &Script_MinimapBlip_ClearAllTracking);
     Game::Lua::RegisterTableFunction(NS, "IsTracked", &Script_MinimapBlip_IsTracked);
     Game::Lua::RegisterTableFunction(NS, "GetTracked", &Script_MinimapBlip_GetTracked);
+    Game::Lua::RegisterTableFunction(NS, "GetIconList", &Script_MinimapBlip_GetIconList);
     Game::Lua::RegisterTableFunction(NS, "ListVisibleGUIDs",
                                      &Script_MinimapBlip_ListVisibleGUIDs);
     Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);
@@ -1091,6 +1163,7 @@ static const Game::ModuleAutoRegister kBlipsAutoRegister{&RegisterLuaFunctions};
 
 void Reset() {
     g_registeredIcons.clear();
+    g_iconOrder.clear();
     g_trackedUnitFlagsBlips.clear();
     g_trackedGameObjectTypesBlips.clear();
     g_combinedNpcFlagMask = 0;
