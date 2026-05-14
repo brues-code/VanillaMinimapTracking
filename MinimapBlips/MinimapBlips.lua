@@ -33,14 +33,14 @@ local BLIP_TYPES = {
 C_Minimap.RegisterIcons(BLIP_TYPES)
 
 local function GetBestTrackingTexture()
-	local bestTexture = Icon("None")
 	local tracked = C_Minimap.GetTracked()
-	for i, entry in ipairs(BLIP_TYPES) do
+	for i = table.getn(BLIP_TYPES), 1, -1 do
+		local entry = BLIP_TYPES[i]
 		if tracked[entry.type] then
-			bestTexture = entry.icon
+			return entry.icon
 		end
 	end
-	return bestTexture
+	return Icon("None")
 end
 
 local button = CreateFrame("Button", "MinimapIconBlips", Minimap)
