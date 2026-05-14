@@ -31,10 +31,11 @@ local BLIP_TYPES = {
 	{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
 }
 C_Minimap.RegisterIcons(BLIP_TYPES)
+local NUM_BLIPS = table.getn(BLIP_TYPES)
 
 local function GetBestTrackingTexture()
 	local tracked = C_Minimap.GetTracked()
-	for i = table.getn(BLIP_TYPES), 1, -1 do
+	for i = NUM_BLIPS, 1, -1 do
 		local entry = BLIP_TYPES[i]
 		if tracked[entry.type] then
 			return entry.icon
@@ -80,7 +81,7 @@ function button:ADDON_LOADED()
 	menu:SetFrameStrata("FULLSCREEN_DIALOG")
 	menu:SetWidth(ROW_WIDTH + PADDING * 2)
 	-- +1 row for the "Clear All" entry pinned at the top.
-	menu:SetHeight((table.getn(BLIP_TYPES) + 1) * ROW_HEIGHT + PADDING * 2)
+	menu:SetHeight((NUM_BLIPS + 1) * ROW_HEIGHT + PADDING * 2)
 	menu:SetBackdrop({
 		bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
