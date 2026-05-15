@@ -16,4 +16,13 @@ namespace Blips {
 void Save();
 void Reset();
 
+// Set true on entry to `CGGameUI_Shutdown_h` (logout / `/reload`) so any of
+// our hooks the engine fires during teardown can bail out instead of
+// running their normal logic. The engine's logout sequence can drive code
+// paths that crash inside `ClntObjMgrEnumVisibleObjects` once the object
+// manager has been torn down — even though we've installed null-checks at
+// every direct call site, defensive code that touches engine state
+// during this window has caused observed crashes.
+extern volatile bool g_inLogout;
+
 } // namespace Blips

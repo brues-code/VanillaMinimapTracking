@@ -87,6 +87,8 @@ struct BlipHoverState {
     std::vector<BlipHoverEntry> hits;
 };
 
+volatile bool g_inLogout = false;
+
 static bool g_hooksInstalled = false;
 static std::unordered_map<std::string, TextureCacheEntry> g_textureCache;
 static std::unordered_map<std::string, IconRegistration> g_registeredIcons;
@@ -373,6 +375,19 @@ static void WriteToMinimapTooltip(char *tooltipText) {
 static int __fastcall
 ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t callback,
                                void *context) {
+    // Once `CGGameUI_Shutdown` has begun, the engine is in mid-teardown and
+    // any path through the trampoline risks crashing inside the
+    // object-manager deref. Bail without invoking the trampoline.
+    if (g_inLogout) {
+        return 0;
+    }
+    // The trampoline's very first instruction is `MOV EAX,[VAR_OBJECT_MANAGER_PTR]`
+    // followed by a `[EAX + 0xAC]` deref. On the glue/character-select screen
+    // that pointer is NULL and the engine itself never calls this function
+    // there — but our DLL (and anything that drives our Lua API) might.
+    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_OBJECT_MANAGER_PTR) == nullptr) {
+        return 0;
+    }
     if (reinterpret_cast<uintptr_t>(callback) == Offsets::FUN_OBJECT_ENUM_PROC) {
         g_trackedObjectsData.clear();
         g_playerGUID = Game::GetGUIDFromName("player");
@@ -384,6 +399,8 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
 }
 
 static int __fastcall ObjectEnumProc_h(Game::MINIMAPINFO *info, uint64_t guid) {
+    if (g_inLogout)
+        return 1;
     if (!CheckObject(info, guid))
         ObjectEnumProc_o(info, guid);
     return 1; // The original function always seems to return 1
@@ -391,6 +408,8 @@ static int __fastcall ObjectEnumProc_h(Game::MINIMAPINFO *info, uint64_t guid) {
 
 static void __fastcall RenderObjectBlips_h(Game::CGMinimapFrame *thisptr, void * /*edx*/,
                                            Game::DNInfo *dnInfo) {
+    if (g_inLogout)
+        return;
     RenderObjectBlips_o(thisptr, dnInfo);
     DrawTrackedBlips(thisptr, dnInfo);
 }
@@ -1098,7 +1117,7 @@ static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
 
     // The object manager is NULL on the glue/character-select screen and the
     // engine's enum function crashes on the first deref. Bail cleanly instead.
-    if (*reinterpret_cast<void *const *>(Offsets::VAR_OBJECT_MANAGER_PTR) == nullptr) {
+    if (*reinterpret_cast<void *volatile *>(Offsets::VAR_OBJECT_MANAGER_PTR) == nullptr) {
         Game::Lua::Error(L, "Not in world.");
         return 0;
     }

@@ -39,6 +39,10 @@ static bool __fastcall FrameScript_Initialize_h() {
     // Invalidate cached slot indices BEFORE the engine tears down the
     // event table — the table is rebuilt at a fresh allocation.
     Event::Custom::PrepareForReload();
+    // FrameScript init fires on both initial load and after /reload, so
+    // clear the logout gate here so our hooks resume work in the new
+    // session. (Set by `CGGameUI_Shutdown_h` on logout/reload.)
+    Blips::g_inLogout = false;
     FrameScript_Initialize_o();
     return true;
 }
@@ -60,17 +64,25 @@ static void __fastcall LoadScriptFunctions_h() {
 // NULL slots near the tail.
 static void __fastcall FrameRegisterEvent_h(void *frame, void *edx,
                                             const char *eventName) {
+    // Once logout has started, skip both our bookkeeping AND the
+    // engine trampoline. Frame registrations during teardown aren't
+    // needed for our state and the trampoline path has been seen to
+    // crash inside the object-manager deref during this window.
+    if (Blips::g_inLogout)
+        return;
     Event::Custom::RetryClaims();
     FrameRegisterEvent_o(frame, edx, eventName);
 }
 
 static void __fastcall CGGameUI_Shutdown_h() {
-    CGGameUI_Shutdown_o();
-    // Match WoW's own behavior (AddOns.txt etc.): flush state on UI teardown
-    // — fires on both clean logout and `/reload`. Reset clears the path, so
-    // Save must run first.
+    // Flip the logout flag BEFORE invoking the trampoline so any other
+    // hook the engine fires during its own shutdown sequence sees the
+    // flag set and bails immediately. Then save state, uninstall blip
+    // hooks, and run the engine teardown.
+    Blips::g_inLogout = true;
     Blips::Save();
     Blips::Reset();
+    CGGameUI_Shutdown_o();
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
