@@ -31,8 +31,8 @@ The current category menu (managed in
 
 - **Target** — your current target.
 - **Focus** — a pseudo-focus unit (vanilla 1.12.1 has no native focus). Set
-  with `C_Minimap.SetFocus([unit])` (defaults to `"target"`) or
-  `C_Minimap.SetFocusByName(name)`.
+  with `C_Minimap.SetFocus([unit])` (defaults to `"target"`),
+  `C_Minimap.SetFocusByName(name)`, or `C_Minimap.SetFocusByGUID(guid)`.
 - **Auctioneer, Banker, Flight Master, Innkeeper, Repair, Trainer,
   Stable Master, Battlemaster, Vendor** — NPCs matched by their
   `m_npcFlags` field.
@@ -87,6 +87,7 @@ work too if you'd rather skip the enum.
 | `C_Minimap.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
 | `C_Minimap.SetFocus([unit])`                                       | —                   | Pins `unit` (a unit ID like `"target"`/`"party1"`) as focus. Defaults to `"target"`. Errors if not found. |
 | `C_Minimap.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
+| `C_Minimap.SetFocusByGUID(guid)`                                   | —                   | Pins a unit by GUID hex string (e.g. `"0x016000000123ABCD"`). Errors on invalid input. |
 | `C_Minimap.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
 
 To detect whether the DLL is loaded, just check the namespace:

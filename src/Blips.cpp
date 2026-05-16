@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -1134,6 +1135,32 @@ static int __fastcall Script_MinimapBlip_SetFocusByName(void *L) {
     return 0;
 }
 
+// Accepts a hex GUID string (optionally `0x`-prefixed) — the same format
+// `ListVisibleGUIDs` emits and that pfUI/other addons pass around. A Lua
+// number arg isn't safe: 5.1 doubles can't exactly hold a 64-bit GUID. No
+// existence check: focus stays pinned even when the unit is out of range,
+// matching the rest of the focus design (CheckObject silently skips when
+// the GUID can't be resolved).
+static int __fastcall Script_MinimapBlip_SetFocusByGUID(void *L) {
+    if (!Game::Lua::IsString(L, 1)) {
+        Game::Lua::Error(L, "Usage: C_Minimap.SetFocusByGUID(guid)");
+        return 0;
+    }
+    const char *s = Game::Lua::ToString(L, 1);
+    if (s == nullptr || s[0] == '\0') {
+        Game::Lua::Error(L, "Usage: C_Minimap.SetFocusByGUID(guid)");
+        return 0;
+    }
+    char *end = nullptr;
+    const uint64_t guid = _strtoui64(s, &end, 16);
+    if (end == s || guid == 0) {
+        Game::Lua::Error(L, "Invalid GUID.");
+        return 0;
+    }
+    g_focusGUID = guid;
+    return 0;
+}
+
 static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
     g_focusGUID = 0;
     return 0;
@@ -1164,6 +1191,7 @@ static void RegisterLuaFunctions() {
                                      &Script_MinimapBlip_ListVisibleGUIDs);
     Game::Lua::RegisterTableFunction(NS, "SetFocus", &Script_MinimapBlip_SetFocus);
     Game::Lua::RegisterTableFunction(NS, "SetFocusByName", &Script_MinimapBlip_SetFocusByName);
+    Game::Lua::RegisterTableFunction(NS, "SetFocusByGUID", &Script_MinimapBlip_SetFocusByGUID);
     Game::Lua::RegisterTableFunction(NS, "ClearFocus", &Script_MinimapBlip_ClearFocus);
 
     constexpr int kBlipTypeCount = static_cast<int>(sizeof(kBlipTypes) / sizeof(kBlipTypes[0]));
