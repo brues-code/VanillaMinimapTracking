@@ -35,7 +35,7 @@ jobs:
           $toc = Join-Path $stage 'MinimapBlips/MinimapBlips.toc'
           (Get-Content $toc) -replace '^## Version:.*', "## Version: $version" |
             Set-Content $toc
-          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip"
 
       - name: Release
         uses: softprops/action-gh-release@v2
