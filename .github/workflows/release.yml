@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -B build -A Win32 "-DVANILLAMINIMAPTRACKING_TAG=${{ github.ref_name }}"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Stage release bundle
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $version = $tag -replace '^v',''
+          $stage = "VanillaMinimapTracking-$tag"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item build/Release/VanillaMinimapTracking.dll $stage
+          Copy-Item -Recurse MinimapBlips $stage
+          # Stamp the addon's TOC version line from the tag (drops the leading `v`)
+          $toc = Join-Path $stage 'MinimapBlips/MinimapBlips.toc'
+          (Get-Content $toc) -replace '^## Version:.*', "## Version: $version" |
+            Set-Content $toc
+          Compress-Archive -Path $stage -DestinationPath "$stage.zip"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VanillaMinimapTracking-${{ github.ref_name }}.zip

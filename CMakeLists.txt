@@ -13,6 +13,32 @@ file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "src/*.h")
 
 add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS})
 
+# Tag-driven version: the release workflow passes `-DVANILLAMINIMAPTRACKING_TAG=v1.2.3`
+# which gets packed into a single int (1*10000 + 2*100 + 3 = 10203) as
+# `VANILLAMINIMAPTRACKING_VERSION_VALUE`. Dev builds with no tag default to 1.
+set(VANILLAMINIMAPTRACKING_VERSION_VALUE 1)
+
+set(VANILLAMINIMAPTRACKING_TAG
+    ""
+    CACHE STRING "Release tag like v1.2.3")
+
+if(VANILLAMINIMAPTRACKING_TAG MATCHES "^v([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
+  set(_MAJOR "${CMAKE_MATCH_1}")
+  set(_MINOR "${CMAKE_MATCH_2}")
+  set(_PATCH "${CMAKE_MATCH_3}")
+  math(EXPR VANILLAMINIMAPTRACKING_VERSION_VALUE
+       "${_MAJOR} * 10000 + ${_MINOR} * 100 + ${_PATCH}")
+elseif(VANILLAMINIMAPTRACKING_TAG)
+  message(
+    FATAL_ERROR
+      "Invalid VANILLAMINIMAPTRACKING_TAG: ${VANILLAMINIMAPTRACKING_TAG} (expected vMAJOR.MINOR.PATCH)"
+  )
+endif()
+
+target_compile_definitions(
+  ${PROJECT_NAME}
+  PRIVATE VANILLAMINIMAPTRACKING_VERSION_VALUE=${VANILLAMINIMAPTRACKING_VERSION_VALUE})
+
 target_link_libraries(${PROJECT_NAME} PRIVATE minhook)
 
 target_include_directories(
