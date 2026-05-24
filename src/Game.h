@@ -501,6 +501,10 @@ using FrameScript_Initialize_t = bool(__fastcall *)();
 using CGGameUI_Shutdown_t = void(__fastcall *)();
 using FrameRegisterEvent_t = void(__fastcall *)(void *frame, void *edx, const char *eventName);
 using CGUnit_C_CanAssist_t = bool(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
+// Returns the reaction value `thisptr` has toward `other`:
+//   1 Hated, 2 Hostile, 3 Unfriendly, 4 Neutral, 5 Friendly, 6 Honored, 7 Revered, 8 Exalted.
+// CanAssist calls into this and bails when the result is < 4.
+using CGUnit_C_UnitReaction_t = int(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
 
 extern const GetGUIDFromName_t GetGUIDFromName;
 extern const ClntObjMgrObjectPtr_t ClntObjMgrObjectPtr;
@@ -515,6 +519,7 @@ extern const SStrPack_t SStrPack;
 extern const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs;
 extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
 extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
+extern const CGUnit_C_UnitReaction_t CGUnit_C_UnitReaction;
 
 void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray);
 

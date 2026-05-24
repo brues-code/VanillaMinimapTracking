@@ -102,6 +102,10 @@ static uint64_t g_currentTargetGUID = 0;
 static bool g_focusTracking = false;
 static uint64_t g_focusGUID = 0;
 static uint64_t g_playerGUID = 0;
+// Resolved once per enum pass alongside g_playerGUID — every CheckObject call
+// in NpcFlag-tracked types needs it for the reaction filter, and resolving
+// per-call would be a `ClntObjMgrObjectPtr` round trip for every candidate.
+static Game::CGUnit_C *g_playerUnit = nullptr;
 static std::unordered_set<std::string> g_enabledTypes;
 static std::string g_configPath;
 static bool g_configLoaded = false;
@@ -257,6 +261,19 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
         if ((unitData->m_npcFlags & g_combinedNpcFlagMask) == 0)
             return false;
 
+        // Hide NPCs the player can't interact with (Unfriendly/Hostile/Hated —
+        // reaction < 4). E.g. a Horde player walking past an Alliance repair
+        // vendor: still flagged repair, but useless to them. Neutral (4) is
+        // kept because vendors like the Booty Bay/Gadgetzan goblin AHes are
+        // genuinely neutral-faction and still tradeable. We skip the check
+        // when g_playerUnit is null (pre-login / load screen) rather than
+        // hiding everything — fail open.
+        if (g_playerUnit != nullptr) {
+            auto *npcUnit = reinterpret_cast<Game::CGUnit_C *>(objptr);
+            if (Game::CGUnit_C_UnitReaction(g_playerUnit, npcUnit) < 4)
+                return false;
+        }
+
         // Vector is sorted by flag-value descending — first match wins,
         // matching the engine's "stable master (0x2000) beats vendor (0x4)" rule.
         for (const auto &[flag, tracked] : g_trackedUnitFlagsBlips) {
@@ -392,6 +409,11 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
     if (reinterpret_cast<uintptr_t>(callback) == Offsets::FUN_OBJECT_ENUM_PROC) {
         g_trackedObjectsData.clear();
         g_playerGUID = Game::GetGUIDFromName("player");
+        g_playerUnit = (g_playerGUID != 0)
+                           ? reinterpret_cast<Game::CGUnit_C *>(Game::ClntObjMgrObjectPtr(
+                                 Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER,
+                                 nullptr, g_playerGUID, 0))
+                           : nullptr;
         if (g_targetTracking) {
             g_currentTargetGUID = Game::GetGUIDFromName("target");
         }
@@ -1221,6 +1243,7 @@ void Reset() {
     g_focusTracking = false;
     g_focusGUID = 0;
     g_playerGUID = 0;
+    g_playerUnit = nullptr;
     g_enabledTypes.clear();
     g_configPath.clear();
     g_configLoaded = false;

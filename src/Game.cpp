@@ -124,6 +124,7 @@ BIND(SStrPack_t,                     SStrPack,                     FUN_S_STR_PAC
 BIND(CWorld_QueryMapObjIDs_t,        CWorld_QueryMapObjIDs,        FUN_CWORLD_QUERY_MAP_OBJ_IDS);
 BIND(ClntObjMgrEnumVisibleObjects_t, ClntObjMgrEnumVisibleObjects, FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
 BIND(CGUnit_C_CanAssist_t,           CGUnit_C_CanAssist,           FUN_CGUNIT_C_CAN_ASSIST);
+BIND(CGUnit_C_UnitReaction_t,        CGUnit_C_UnitReaction,        FUN_CGUNIT_C_UNIT_REACTION);
 
 CStatus::CStatus()
     // `m_head` is a TSLink intrusive-list head pointing at itself, with the

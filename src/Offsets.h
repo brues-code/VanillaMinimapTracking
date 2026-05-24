@@ -40,6 +40,7 @@ enum Offsets {
     FUN_FRAME_SCRIPT_INITIALIZE = 0x7039E0,
     FUN_CGGAMEUI_SHUTDOWN = 0X490BD0,
     FUN_CGUNIT_C_CAN_ASSIST = 0x6066F0,
+    FUN_CGUNIT_C_UNIT_REACTION = 0x6061E0,
 
     // FrameScript_SignalEvent2 — fires a custom event with a printf-style
     // format string, dispatching arg1, arg2, ... to all frames that have
