@@ -104,9 +104,12 @@ function button:ADDON_LOADED()
 	menu:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 	menu:Hide()
 	self:RegisterEvent("MINIMAP_UPDATE_TRACKING")
+	self:RegisterEvent("PLAYER_FOCUS_CHANGED")
 	self:SetScript("OnEvent", function()
 		if event == "MINIMAP_UPDATE_TRACKING" then
 			icon:SetTexture(GetBestTrackingTexture())
+		elseif event == "PLAYER_FOCUS_CHANGED" then
+			self:FOCUS_CHANGED()
 		end
 	end)
 
@@ -215,6 +218,15 @@ function button:ADDON_LOADED()
 		GameTooltip:Hide()
 	end)
 	self:UnregisterEvent("ADDON_LOADED")
+end
+
+function button:FOCUS_CHANGED()
+	local unitGUID = UnitGUID('focus')
+	if unitGUID then
+		C_Minimap.SetFocusByGUID(unitGUID)
+	else
+		C_Minimap.ClearFocus()
+	end
 end
 
 button:RegisterEvent("ADDON_LOADED")
