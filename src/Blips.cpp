@@ -109,11 +109,19 @@ static Game::CGUnit_C *g_playerUnit = nullptr;
 static std::unordered_set<std::string> g_enabledTypes;
 static std::string g_configPath;
 static bool g_configLoaded = false;
-// Tracked-NPC flag list, sorted by flag value descending. The minimap
-// "highest flag wins" rule lets us break on the first match instead of
-// scanning every entry. N is tiny (≤ ~10), so linear insert/erase in
-// ApplyTrack is cheaper than maintaining a sorted+hash dual structure.
-static std::vector<std::pair<uint32_t, Blip>> g_trackedUnitFlagsBlips;
+// One active NPC-flag registration. Multiple entries can share the same
+// `flag` value (e.g. several sub-vendors all on UNIT_NPC_FLAG_VENDOR with
+// different subname filters). Sort order in the vector is (flag desc,
+// filtered-first within same flag) so CheckObject's first-match loop
+// hits the most specific row before falling through to the catch-all.
+struct TrackedFlagEntry {
+    uint32_t flag;
+    Blip blip;
+    std::string typeName;
+    std::string includeFilter; // pipe-delimited subnames; empty = no filter
+    std::string excludeFilter;
+};
+static std::vector<TrackedFlagEntry> g_trackedUnitFlagsBlips;
 static std::unordered_map<uint32_t, Blip> g_trackedGameObjectTypesBlips;
 // OR of every flag in g_trackedUnitFlagsBlips; (unit.m_npcFlags & this) == 0
 // is the fast-path bail in CheckObject. Bitmask of (1 << type) for every type
@@ -141,6 +149,15 @@ struct BlipTypeDef {
     const char *iconPath;  // texture path; auto-registered at module init
     const char *label;     // English UI label — addon reads via GetIconList
     float scale;
+    // Optional subname filters (NpcFlag rows only). Pipe-delimited list of
+    // substrings; we match ANY segment against the NPC's `<subName>` for
+    // include, and reject on ANY-segment match for exclude. Lets multiple
+    // rows share an engine flag (e.g. several `vendor` rows discriminated
+    // by `<Reagent Vendor>` vs `<Trade Goods>`) — filtered rows take
+    // priority over the unfiltered catch-all in CheckObject's match loop.
+    // enUS-only; addon-side locale dispatch isn't wired in yet.
+    const char *includeFilter;
+    const char *excludeFilter;
 };
 
 // Scale defaults used in registrations below — kept as names so the
@@ -148,21 +165,45 @@ struct BlipTypeDef {
 constexpr float kScaleNormal = 1.0F;
 constexpr float kScaleTracking = 1.5F;
 
+// Subname filter strings lifted verbatim from WeirdUtils' enUS lists. Used
+// by the sub-vendor rows below. Pipe-delimited substrings; CheckObject
+// matches any segment as a substring against the NPC's `<subName>`.
+// Locale handling is on the addon side — these enUS strings are also a
+// reasonable fallback for non-English clients on Turtle WoW since the
+// curated list includes server-specific custom NPCs.
+constexpr const char *kReagentVendorSubnames =
+    "Apprentice Witch Doctor|Arcane Goods|Arcane Goods Vendor|Arcane Trinkets Vendor|"
+    "Ered Ruin|Exotic Reagent Merchant|Lorekeeper|Poisons & Reagents|"
+    "Potions, Scrolls and Reagents|Reagent Supplier|Reagent Supplies|"
+    "Reagent Vendor|Reagents|Reagents & Poisons|Reagents and Herbs|"
+    "Reagents Vendor|Scrolls & Potions|Voodoo Hexxer";
+constexpr const char *kPoisonVendorSubnames =
+    "Ered Ruin|Poison Supplier|Poison Supplies|Poison Vendor|Poisons & Reagents|"
+    "Reagents & Poisons|Shady Dealer|Shady Goods|Tools & Supplies";
+constexpr const char *kAmmunitionVendorSubnames =
+    "Ammunition|Ammunition Vendor|Bow & Arrow Merchant|Bow & Gun Merchant|"
+    "Bow Merchant|Bowyer|Bowyer & Fletching Goods|Bowyer & Gunsmith|Fletcher|"
+    "Gun Merchant|Guns and Ammo|Guns and Ammo Merchant|Guns Merchant|"
+    "Guns Vendor|Gunsmith|Gunsmith & Bowyer|Superior Bowyer|"
+    "Weaponsmith & Gunsmith";
+
 static constexpr BlipTypeDef kBlipTypes[] = {
-    {"Target",                "target",                  BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Target",       "Target",         kScaleTracking},
-    {"Focus",                 "focus",                   BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Focus",        "Focus",          kScaleTracking},
-    {"Auctioneer",            "auctioneer",              BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_AUCTIONEER,             "Interface\\AddOns\\MinimapBlips\\icons\\Auctioneer",   "Auctioneer",     kScaleTracking},
-    {"Banker",                "banker",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BANKER,                 "Interface\\AddOns\\MinimapBlips\\icons\\Banker",       "Banker",         kScaleTracking},
-    {"Battlemaster",          "battlemaster",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BATTLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\BattleMaster", "Battlemaster",   kScaleTracking},
-    {"FlightMaster",          "flight master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_FLIGHTMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\FlightMaster", "Flight Master",  kScaleTracking},
-    {"Innkeeper",             "innkeeper",               BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_INNKEEPER,              "Interface\\AddOns\\MinimapBlips\\icons\\Innkeeper",    "Innkeeper",      kScaleTracking},
-    {"Repair",                "repair",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_REPAIR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Repair",       "Repair",         kScaleTracking},
-    {"StableMaster",          "stable master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\StableMaster", "Stable Master",  kScaleTracking},
-    // {"SummoningRitualUnit",   "summoning ritual unit",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_SUMMONING_RITUAL,       "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Summoning Ritual", kScaleTracking},
-    {"Trainer",               "trainer",                 BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER,                "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Trainer",        kScaleTracking},
-    {"Vendor",                "vendor",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\Icons\\INV_Misc_Coin_02",                   "Vendor",         kScaleNormal},
-    {"Mailbox",               "mailbox",                 BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX,              "Interface\\AddOns\\MinimapBlips\\icons\\Mailbox",      "Mailbox",        kScaleTracking},
-    // {"SummoningRitualObject", "summoning ritual object", BlipKind::GameObject, Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL,     "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Summoning Stone", kScaleTracking},
+    // {"QuestAvailable",    "quest available", BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_QUESTGIVER,             "Interface\\AddOns\\MinimapBlips\\icons\\QuestAvailable",  "Quest Available",   kScaleTracking, "",                       ""},
+    {"Auctioneer",        "auctioneer",      BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_AUCTIONEER,             "Interface\\AddOns\\MinimapBlips\\icons\\Auctioneer",      "Auctioneer",        kScaleTracking, "",                       ""},
+    {"Banker",            "banker",          BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BANKER,                 "Interface\\AddOns\\MinimapBlips\\icons\\Banker",          "Banker",            kScaleTracking, "",                       ""},
+    {"Battlemaster",      "battlemaster",    BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BATTLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\BattleMaster",    "Battlemaster",      kScaleTracking, "",                       ""},
+    {"FlightMaster",      "flight master",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_FLIGHTMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\FlightMaster",    "Flight Master",     kScaleTracking, "",                       ""},
+    {"Innkeeper",         "innkeeper",       BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_INNKEEPER,              "Interface\\AddOns\\MinimapBlips\\icons\\Innkeeper",       "Innkeeper",         kScaleTracking, "",                       ""},
+    {"Repair",            "repair",          BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_REPAIR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Repair",          "Repair",            kScaleTracking, "",                       ""},
+    {"StableMaster",      "stable master",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\StableMaster",    "Stable Master",     kScaleTracking, "",                       ""},
+    {"Trainer",           "trainer",         BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER,                "Interface\\AddOns\\MinimapBlips\\icons\\Profession",      "Trainer",           kScaleTracking, "",                       ""},
+    {"Vendor",            "vendor",          BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\Icons\\INV_Misc_Coin_02",                      "Vendor",            kScaleNormal,   "",                       ""},
+    {"ReagentVendor",     "reagent vendor",  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Reagents",        "Reagent Vendor",    kScaleTracking, kReagentVendorSubnames,   ""},
+    {"PoisonVendor",      "poison vendor",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Poisons",         "Poison Vendor",     kScaleTracking, kPoisonVendorSubnames,    ""},
+    {"AmmunitionVendor",  "ammunition",      BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Ammunition",      "Ammunition",        kScaleTracking, kAmmunitionVendorSubnames,""},
+    {"Mailbox",           "mailbox",         BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX,              "Interface\\AddOns\\MinimapBlips\\icons\\Mailbox",         "Mailbox",           kScaleTracking, "",                       ""},
+    {"Target",            "target",          BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Target",          "Target",            kScaleTracking, "",                       ""},
+    {"Focus",             "focus",           BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Focus",           "Focus",             kScaleTracking, "",                       ""},
 };
 
 static const BlipTypeDef *FindBlipType(const std::string &typeName) {
@@ -181,8 +222,37 @@ static const char *FindBlipTypeNameByEngine(BlipKind kind, uint32_t engineValue)
     return nullptr;
 }
 
+// Extracts the `<subName>` string from a unit by walking the creature
+// cache: unit + 0xB30 → cache row, +0x10 → subname c-string. Either hop
+// can be NULL (uncached / unnamed); returns an empty string in that case.
+static std::string ExtractUnitSubName(Game::CGObject_C *objectptr) {
+    if (objectptr->m_objectType != Game::OBJECT_TYPE::UNIT) return "";
+    const auto *unitBytes = reinterpret_cast<const uint8_t *>(objectptr);
+    const auto *cacheRow = Game::SafeDeref(unitBytes, 0xB30);
+    const auto *raw = reinterpret_cast<const char *>(Game::SafeDeref(cacheRow, 0x10));
+    if (raw == nullptr || raw[0] == '\0') return "";
+    return raw;
+}
+
+// True if `subName` contains any of the pipe-delimited segments in `filter`
+// as a substring. Empty filter is a non-match (callers should pre-check).
+// Case-sensitive — WoW subnames have stable server-supplied casing.
+static bool SubnameContainsAnySegment(const std::string &subName, const char *filter) {
+    if (filter == nullptr || *filter == '\0' || subName.empty()) return false;
+    const char *p = filter;
+    while (*p != '\0') {
+        const char *segStart = p;
+        while (*p != '\0' && *p != '|') ++p;
+        const size_t segLen = static_cast<size_t>(p - segStart);
+        if (segLen > 0 && subName.find(segStart, 0, segLen) != std::string::npos)
+            return true;
+        if (*p == '|') ++p;
+    }
+    return false;
+}
+
 static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, uint64_t guid,
-                        Blip blip, const char *typeName) {
+                        Blip blip, const char *typeName, std::string subName) {
     Game::C2Vector minimapPos;
     Game::C3Vector unitPos;
 
@@ -202,20 +272,9 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
     Game::WorldPosToMinimapFrameCoords(&minimapPos, nullptr, info->currentPos, info->radius,
                                        unitPos.x, unitPos.y, info->layoutScale, unkScale);
 
-    std::string subName;
-    if (objectptr->m_objectType == Game::OBJECT_TYPE::UNIT) {
-        // Walk unit → creature-cache row → subname string. Either hop can be
-        // NULL (uncached / unnamed); SafeDeref short-circuits if so.
-        const auto *unitBytes = reinterpret_cast<const uint8_t *>(objectptr);
-        const auto *cacheRow = Game::SafeDeref(unitBytes, 0xB30);
-        const auto *raw = reinterpret_cast<const char *>(Game::SafeDeref(cacheRow, 0x10));
-        if (raw != nullptr && raw[0] != '\0')
-            subName = raw;
-    }
-
     g_trackedObjectsData.push_back(
-        {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr), subName,
-         typeName ? typeName : "", blip});
+        {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr),
+         std::move(subName), typeName ? typeName : "", blip});
 }
 
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
@@ -226,8 +285,9 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
-                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
-                            iconIt->second.blip, "target");
+                auto *objptr = reinterpret_cast<Game::CGObject_C *>(unitptr);
+                TrackObject(info, objptr, guid, iconIt->second.blip, "target",
+                            ExtractUnitSubName(objptr));
                 return true;
             }
         }
@@ -240,8 +300,9 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
             auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(
                 Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_UNIT, nullptr, guid, 0));
             if (unitptr != nullptr) {
-                TrackObject(info, reinterpret_cast<Game::CGObject_C *>(unitptr), guid,
-                            iconIt->second.blip, "focus");
+                auto *objptr = reinterpret_cast<Game::CGObject_C *>(unitptr);
+                TrackObject(info, objptr, guid, iconIt->second.blip, "focus",
+                            ExtractUnitSubName(objptr));
                 return true;
             }
         }
@@ -282,14 +343,28 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
                 return false;
         }
 
-        // Vector is sorted by flag-value descending — first match wins,
-        // matching the engine's "stable master (0x2000) beats vendor (0x4)" rule.
-        for (const auto &[flag, tracked] : g_trackedUnitFlagsBlips) {
-            if (unitData->m_npcFlags & flag) {
-                TrackObject(info, objptr, guid, tracked,
-                            FindBlipTypeNameByEngine(BlipKind::NpcFlag, flag));
-                return true;
-            }
+        // Subname extracted once and reused for both filter eval and the
+        // tooltip-line stored in TrackObject. Cheap enough — only runs
+        // after the flag fast-bail rejected non-candidates.
+        std::string subName = ExtractUnitSubName(objptr);
+
+        // Vector is sorted by flag-value descending, filtered-first within
+        // a flag — so a "reagent vendor" (UNIT_NPC_FLAG_VENDOR + subname
+        // filter) wins over the plain "vendor" catch-all on the same flag,
+        // while higher-priority flags like StableMaster still beat any
+        // VENDOR-class row.
+        for (const auto &entry : g_trackedUnitFlagsBlips) {
+            if ((unitData->m_npcFlags & entry.flag) == 0)
+                continue;
+            if (!entry.includeFilter.empty() &&
+                !SubnameContainsAnySegment(subName, entry.includeFilter.c_str()))
+                continue;
+            if (!entry.excludeFilter.empty() &&
+                SubnameContainsAnySegment(subName, entry.excludeFilter.c_str()))
+                continue;
+            TrackObject(info, objptr, guid, entry.blip, entry.typeName.c_str(),
+                        std::move(subName));
+            return true;
         }
     } else if (objptr->m_objectType == Game::OBJECT_TYPE::GAMEOBJECT) {
         const auto *gameObjectData = reinterpret_cast<Game::CGGameObjectData *>(objptr->m_data);
@@ -302,7 +377,8 @@ static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
         const auto it = g_trackedGameObjectTypesBlips.find(gameObjectData->m_type);
         if (it != g_trackedGameObjectTypesBlips.end()) {
             TrackObject(info, objptr, guid, it->second,
-                        FindBlipTypeNameByEngine(BlipKind::GameObject, gameObjectData->m_type));
+                        FindBlipTypeNameByEngine(BlipKind::GameObject, gameObjectData->m_type),
+                        "");
             return true;
         }
     }
@@ -671,9 +747,11 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
     }
 
     if (def->kind == BlipKind::NpcFlag) {
+        // Find by typeName, not flag — multiple rows can share a flag
+        // (e.g. several `vendor`-flag rows discriminated by subname filter).
         const auto it = std::find_if(
             g_trackedUnitFlagsBlips.begin(), g_trackedUnitFlagsBlips.end(),
-            [&](const auto &p) { return p.first == def->engineValue; });
+            [&](const auto &e) { return e.typeName == typeName; });
         const bool currently = it != g_trackedUnitFlagsBlips.end();
         if (enabled == currently)
             return ApplyResult::NoChange;
@@ -681,16 +759,30 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
             const Blip *icon = needIcon();
             if (icon == nullptr)
                 return ApplyResult::IconMissing;
-            // Keep descending order so the CheckObject loop breaks on the
-            // highest-priority flag (the "stable master beats vendor" rule).
-            const auto pos = std::lower_bound(
-                g_trackedUnitFlagsBlips.begin(), g_trackedUnitFlagsBlips.end(), def->engineValue,
-                [](const auto &p, uint32_t f) { return p.first > f; });
-            g_trackedUnitFlagsBlips.insert(pos, {def->engineValue, *icon});
+            g_trackedUnitFlagsBlips.push_back({
+                def->engineValue, *icon, typeName,
+                def->includeFilter != nullptr ? def->includeFilter : "",
+                def->excludeFilter != nullptr ? def->excludeFilter : "",
+            });
+            // Re-sort: flag desc (highest-priority flag wins), then
+            // filtered-first within same flag (so reagent-vendor matches
+            // before the plain-vendor catch-all on UNIT_NPC_FLAG_VENDOR).
+            // N is tiny (<20 entries), full sort beats hand-rolled insert.
+            std::sort(g_trackedUnitFlagsBlips.begin(), g_trackedUnitFlagsBlips.end(),
+                      [](const TrackedFlagEntry &a, const TrackedFlagEntry &b) {
+                          if (a.flag != b.flag) return a.flag > b.flag;
+                          const bool aF = !a.includeFilter.empty() || !a.excludeFilter.empty();
+                          const bool bF = !b.includeFilter.empty() || !b.excludeFilter.empty();
+                          return aF && !bF; // filtered entries first within same flag
+                      });
             g_combinedNpcFlagMask |= def->engineValue;
         } else {
             g_trackedUnitFlagsBlips.erase(it);
-            g_combinedNpcFlagMask &= ~def->engineValue;
+            // Recompute the OR mask from what's left — clearing a single
+            // bit is wrong when other rows still share the same flag value.
+            g_combinedNpcFlagMask = 0;
+            for (const auto &e : g_trackedUnitFlagsBlips)
+                g_combinedNpcFlagMask |= e.flag;
         }
     } else {
         // BlipKind::GameObject
