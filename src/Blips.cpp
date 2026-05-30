@@ -138,23 +138,31 @@ struct BlipTypeDef {
     const char *typeName;  // lowercase, the value addons actually pass to C_Minimap.*
     BlipKind kind;
     uint32_t engineValue;  // unused for Special
+    const char *iconPath;  // texture path; auto-registered at module init
+    const char *label;     // English UI label — addon reads via GetIconList
+    float scale;
 };
 
+// Scale defaults used in registrations below — kept as names so the
+// table reads as data, not magic numbers.
+constexpr float kScaleNormal = 1.0F;
+constexpr float kScaleTracking = 1.5F;
+
 static constexpr BlipTypeDef kBlipTypes[] = {
-    {"Target",                "target",                  BlipKind::Special,    0},
-    {"Focus",                 "focus",                   BlipKind::Special,    0},
-    {"Auctioneer",            "auctioneer",              BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_AUCTIONEER},
-    {"Banker",                "banker",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BANKER},
-    {"Battlemaster",          "battlemaster",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BATTLEMASTER},
-    {"FlightMaster",          "flight master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_FLIGHTMASTER},
-    {"Innkeeper",             "innkeeper",               BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_INNKEEPER},
-    {"Repair",                "repair",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_REPAIR},
-    {"StableMaster",          "stable master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER},
-    {"SummoningRitualUnit",   "summoning ritual unit",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_SUMMONING_RITUAL},
-    {"Trainer",               "trainer",                 BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER},
-    {"Vendor",                "vendor",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR},
-    {"Mailbox",               "mailbox",                 BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX},
-    {"SummoningRitualObject", "summoning ritual object", BlipKind::GameObject, Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL},
+    {"Target",                "target",                  BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Target",       "Target",         kScaleTracking},
+    {"Focus",                 "focus",                   BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Focus",        "Focus",          kScaleTracking},
+    {"Auctioneer",            "auctioneer",              BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_AUCTIONEER,             "Interface\\AddOns\\MinimapBlips\\icons\\Auctioneer",   "Auctioneer",     kScaleTracking},
+    {"Banker",                "banker",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BANKER,                 "Interface\\AddOns\\MinimapBlips\\icons\\Banker",       "Banker",         kScaleTracking},
+    {"Battlemaster",          "battlemaster",            BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_BATTLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\BattleMaster", "Battlemaster",   kScaleTracking},
+    {"FlightMaster",          "flight master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_FLIGHTMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\FlightMaster", "Flight Master",  kScaleTracking},
+    {"Innkeeper",             "innkeeper",               BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_INNKEEPER,              "Interface\\AddOns\\MinimapBlips\\icons\\Innkeeper",    "Innkeeper",      kScaleTracking},
+    {"Repair",                "repair",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_REPAIR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Repair",       "Repair",         kScaleTracking},
+    {"StableMaster",          "stable master",           BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_STABLEMASTER,           "Interface\\AddOns\\MinimapBlips\\icons\\StableMaster", "Stable Master",  kScaleTracking},
+    // {"SummoningRitualUnit",   "summoning ritual unit",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_SUMMONING_RITUAL,       "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Summoning Ritual", kScaleTracking},
+    {"Trainer",               "trainer",                 BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_TRAINER,                "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Trainer",        kScaleTracking},
+    {"Vendor",                "vendor",                  BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\Icons\\INV_Misc_Coin_02",                   "Vendor",         kScaleNormal},
+    {"Mailbox",               "mailbox",                 BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX,              "Interface\\AddOns\\MinimapBlips\\icons\\Mailbox",      "Mailbox",        kScaleTracking},
+    // {"SummoningRitualObject", "summoning ritual object", BlipKind::GameObject, Game::GAMEOBJECT_TYPE_SUMMONING_RITUAL,     "Interface\\AddOns\\MinimapBlips\\icons\\Profession",   "Summoning Stone", kScaleTracking},
 };
 
 static const BlipTypeDef *FindBlipType(const std::string &typeName) {
@@ -615,105 +623,18 @@ static bool RegisterIconInternal(const std::string &typeName, const std::string 
     return true;
 }
 
-static int __fastcall Script_MinimapBlip_RegisterIcon(void *L) {
-    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsString(L, 2)) {
-        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcon(trackingType, icon [, scale [, label]])");
-        return 0;
+// Auto-register every row in `kBlipTypes[]`. Replaces the legacy
+// `C_Minimap.RegisterIcon[s]` Lua API — labels/paths/scales now live with
+// the type definition, the engine wakes up with icons already registered,
+// and `GetIconList` can be queried by addons without them having to push
+// the icons in first. Called once at module-register time
+// (post-`LoadScriptFunctions`, so the texture pipeline is live).
+static void RegisterDefaultIcons() {
+    for (const auto &d : kBlipTypes) {
+        std::string path = d.iconPath;
+        std::transform(path.begin(), path.end(), path.begin(), ::tolower);
+        RegisterIconInternal(d.typeName, path, d.label, d.scale);
     }
-
-    const std::string typeName = Game::Lua::ToString(L, 1);
-
-    std::string texturePath = Game::Lua::ToString(L, 2);
-    std::transform(texturePath.begin(), texturePath.end(), texturePath.begin(), ::tolower);
-
-    float scale = 1.0F;
-    if (Game::Lua::IsNumber(L, 3)) {
-        scale = static_cast<float>(Game::Lua::ToNumber(L, 3));
-    }
-
-    std::string label;
-    if (Game::Lua::IsString(L, 4)) {
-        if (const char *s = Game::Lua::ToString(L, 4)) {
-            label = s;
-        }
-    }
-
-    if (!RegisterIconInternal(typeName, texturePath, label, scale)) {
-        Game::Lua::Error(L, "Couldn't load texture.");
-        return 0;
-    }
-
-    // Pull saved intent from disk (if not already), then bring this type's
-    // runtime state up if the addon previously had it tracked. Order matters:
-    // the icon must be in g_registeredIcons before SyncRuntimeFromIntent so
-    // ApplyTrack can find it.
-    EnsureConfigLoaded();
-    SyncRuntimeFromIntent();
-    return 0;
-}
-
-// Bulk-register icons from a Lua array of `{ type, icon, scale }`
-// entries. Equivalent to a loop of C_Minimap.RegisterIcon
-static int __fastcall Script_MinimapBlip_RegisterIcons(void *L) {
-    if (!Game::Lua::IsTable(L, 1)) {
-        Game::Lua::Error(L, "Usage: C_Minimap.RegisterIcons({ {type, icon, scale}, ... })");
-        return 0;
-    }
-
-    // Helpers that read a field off the entry-table at the given relative index.
-    // Pushing the key shifts negative indices by one, so we adjust before
-    // calling lua_gettable. The string variant copies into `out` BEFORE the
-    // pop so we don't hand back a pointer into Lua-managed memory that GC
-    // could free.
-    auto adjust = [](int idx) { return idx < 0 ? idx - 1 : idx; };
-    auto readField = [&](int tableStackIdx, const char *field, std::string &out) -> bool {
-        Game::Lua::PushString(L, field);
-        Game::Lua::GetTable(L, adjust(tableStackIdx));
-        bool ok = false;
-        if (Game::Lua::IsString(L, -1)) {
-            if (const char *s = Game::Lua::ToString(L, -1)) {
-                out = s;
-                ok = true;
-            }
-        }
-        Game::Lua::SetTop(L, -2); // pop looked-up value
-        return ok;
-    };
-    auto readScale = [&](int tableStackIdx) -> float {
-        Game::Lua::PushString(L, "scale");
-        Game::Lua::GetTable(L, adjust(tableStackIdx));
-        const float v = Game::Lua::IsNumber(L, -1)
-                            ? static_cast<float>(Game::Lua::ToNumber(L, -1))
-                            : 1.0F;
-        Game::Lua::SetTop(L, -2);
-        return v;
-    };
-
-    Game::Lua::PushNil(L);
-    while (Game::Lua::Next(L, 1) != 0) {
-        // Stack: [array, key, entry]
-        if (Game::Lua::IsTable(L, -1)) {
-            std::string typeName, iconPath, label;
-            const bool hasType = readField(-1, "type", typeName);
-            const bool hasIcon = readField(-1, "icon", iconPath);
-            readField(-1, "label", label); // optional; empty string if absent
-            const float scale = readScale(-1);
-
-            if (hasType && hasIcon) {
-                std::transform(iconPath.begin(), iconPath.end(), iconPath.begin(),
-                               ::tolower);
-                RegisterIconInternal(typeName, iconPath, label, scale);
-            }
-        }
-        Game::Lua::SetTop(L, -2); // pop value, keep key for next iteration
-    }
-
-    // Now that every icon in this batch is in g_registeredIcons, load the
-    // saved intent (if not yet) and bring up runtime state for any tracked
-    // types whose icons were just supplied.
-    EnsureConfigLoaded();
-    SyncRuntimeFromIntent();
-    return 0;
 }
 
 enum class ApplyResult { Applied, NoChange, UnknownType, IconMissing };
@@ -864,8 +785,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
         return 0;
     }
     if (r == ApplyResult::IconMissing) {
-        Game::Lua::Error(L, "No icon registered for this type. Call "
-                            "C_Minimap.RegisterIcon first.");
+        Game::Lua::Error(L, "Icon texture failed to load for this type.");
         return 0;
     }
     if (r == ApplyResult::Applied) {
@@ -891,8 +811,7 @@ static int __fastcall Script_MinimapBlip_Toggle(void *L) {
         return 0;
     }
     if (r == ApplyResult::IconMissing) {
-        Game::Lua::Error(L, "No icon registered for this type. Call "
-                            "C_Minimap.RegisterIcon first.");
+        Game::Lua::Error(L, "Icon texture failed to load for this type.");
         return 0;
     }
     if (r == ApplyResult::Applied) {
@@ -1085,6 +1004,11 @@ static bool EnsureConfigLoaded() {
                    "\\VanillaMinimapTracking.txt";
     LoadConfigFromFile();
     g_configLoaded = true;
+    // Now that intent is on disk, bring runtime state up for every type
+    // the player had tracked last session. Icons are already registered
+    // from RegisterDefaultIcons (called at module init), so ApplyTrack
+    // can always find them.
+    SyncRuntimeFromIntent();
     return true;
 }
 
@@ -1199,9 +1123,12 @@ static void RegisterLuaFunctions() {
     // clean.
     InstallHooks();
 
+    // Default icon set lives in C++ (see `kBlipTypes[]`). Used to be a
+    // Lua-side `C_Minimap.RegisterIcon[s]` round-trip from the addon; that
+    // API is gone now — defaults register here at module-init.
+    RegisterDefaultIcons();
+
     constexpr const char *NS = "C_Minimap";
-    Game::Lua::RegisterTableFunction(NS, "RegisterIcon", &Script_MinimapBlip_RegisterIcon);
-    Game::Lua::RegisterTableFunction(NS, "RegisterIcons", &Script_MinimapBlip_RegisterIcons);
     Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
     Game::Lua::RegisterTableFunction(NS, "Toggle", &Script_MinimapBlip_Toggle);
     Game::Lua::RegisterTableFunction(NS, "ClearAllTracking",

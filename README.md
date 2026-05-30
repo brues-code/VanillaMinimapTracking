@@ -17,12 +17,14 @@ a small button next to the minimap.
   <character>\VanillaMinimapTracking.txt` on first API call after login,
   flushed back on UI shutdown — same convention as `AddOns.txt`) and
   exposes a small Lua API + a custom `MINIMAP_UPDATE_TRACKING` event.
-- **`MinimapBlips/`** — a companion WoW addon that ships the blip artwork
-  (in `MinimapBlips/icons/`), registers it with the DLL on load, draws the
-  toggle button next to the minimap, and renders the category menu. It's a
-  thin UI on top of the DLL's Lua API — no `SavedVariables`, no path
-  knowledge, no tracking state of its own. Without the DLL loaded, the
-  addon shows a chat warning and does nothing.
+- **`MinimapBlips/`** — the companion WoW addon (toggle button + category
+  menu). Its `.lua`, `.toc`, and `icons/*.blp` are baked into the DLL at
+  build time via `cmake/embed_addon.cmake` and served from memory through
+  a `FUN_FILE_READ` hook in [`src/addons/Embedded.cpp`](src/addons/Embedded.cpp).
+  Result: only the DLL needs to be installed — the addon shows up in the
+  AddOns list automatically. If the user has a customized `MinimapBlips/`
+  on disk with a newer `## Version:` than the embedded copy, the disk
+  version wins.
 
 ## Categories
 
@@ -58,14 +60,15 @@ cmake --build build --config Release
 
 ## Install
 
-1. **DLL:** drop `build\Release\VanillaMinimapTracking.dll` into the folder
-   VanillaFixes loads DLLs from (typically next to the WoW.exe loaded by
-   VanillaFixes).
-2. **Addon:** copy the entire `MinimapBlips/` folder to
-   `<WoW>\Interface\AddOns\MinimapBlips\`.
+Drop `build\Release\VanillaMinimapTracking.dll` into the folder VanillaFixes
+loads DLLs from (typically next to the WoW.exe loaded by VanillaFixes).
+That's it — the `MinimapBlips` addon is embedded inside the DLL and
+shows up in the in-game AddOns list automatically. No `Interface\AddOns\`
+copy step.
 
-Both the DLL and the addon need to be installed — the addon detects the DLL
-via the `C_Minimap` namespace and refuses to load if the DLL is missing.
+If you want to customize the addon (custom icons, modified Lua), drop a
+`MinimapBlips/` folder under `<WoW>\Interface\AddOns\` with a `## Version:`
+higher than what the DLL ships and the disk copy wins.
 
 ## Lua API
 
@@ -75,15 +78,18 @@ Pass type names from the `Enum.MinimapBlip` table — keys are PascalCase
 values are the lowercase strings the engine actually uses. Hard-coded strings
 work too if you'd rather skip the enum.
 
+The default icon set lives in the DLL (`kBlipTypes[]` in `src/Blips.cpp`)
+and is auto-registered at init — addons don't push icons to the DLL anymore,
+they just read the registry back via `GetIconList`.
+
 | Function                                                              | Returns             | Notes                                                                       |
 |-----------------------------------------------------------------------|---------------------|-----------------------------------------------------------------------------|
-| `C_Minimap.RegisterIcons({{type, icon, scale}, ...})` | —                   | Bulk-register icons in one call.  |
-| `C_Minimap.RegisterIcon(type, icon, scale)`                       | —                   | Single-icon variant.                                                        |                               |
 | `C_Minimap.Track(type, 0\|1)`                                      | —                   | Set a category's tracked state. Saved on UI shutdown (logout / `/reload`).  |
 | `C_Minimap.Toggle(type)`                                           | —                   | Flip a category's tracked state — caller doesn't need to know current value. |
 | `C_Minimap.ClearAllTracking()`                                     | —                   | Disables every currently-tracked category. Fires one `MINIMAP_UPDATE_TRACKING`. |
 | `C_Minimap.IsTracked(type)`                                        | `1` or `nil`        | `if C_Minimap.IsTracked(t) then ... end`.                               |
 | `C_Minimap.GetTracked()`                                           | `{type=1, ...}` set | All currently-tracked types as a set keyed by lowercase name.               |
+| `C_Minimap.GetIconList()`                                          | array of `{type, label, icon}` | Every registered icon in declaration order. Read this to drive a UI menu. |
 | `C_Minimap.ListVisibleGUIDs([type])`                               | array of strings    | GUIDs (hex `"0x%016X"`) for every blip currently on the minimap, optionally filtered by type. |
 | `C_Minimap.SetFocus([unit])`                                       | —                   | Pins `unit` (a unit ID like `"target"`/`"party1"`) as focus. Defaults to `"target"`. Errors if not found. |
 | `C_Minimap.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |

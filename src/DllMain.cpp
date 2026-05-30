@@ -16,6 +16,7 @@
 #include "Game.h"
 #include "MinHook.h"
 #include "Offsets.h"
+#include "addons/Embedded.h"
 #include "event/Custom.h"
 
 static Game::FrameScript_Initialize_t FrameScript_Initialize_o = nullptr;
@@ -105,6 +106,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved) {
         HOOK_FUNCTION(Offsets::FUN_FRAME_REGISTER_EVENT, FrameRegisterEvent_h,
                       FrameRegisterEvent_o);
         HOOK_FUNCTION(Offsets::FUN_CGGAMEUI_SHUTDOWN, CGGameUI_Shutdown_h, CGGameUI_Shutdown_o);
+
+        // Embedded MinimapBlips addon: serves the addon's files from
+        // baked-in byte arrays when the user doesn't have it installed
+        // on disk. Hook install order matters — file-read must be up
+        // before the engine's first read of any AddOns file.
+        if (!Addons::Embedded::InstallHooks())
+            return FALSE;
     } else if (reason == DLL_PROCESS_DETACH) {
         MH_Uninitialize();
     }

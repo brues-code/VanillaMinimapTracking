@@ -42,6 +42,26 @@ enum Offsets {
     FUN_CGUNIT_C_CAN_ASSIST = 0x6066F0,
     FUN_CGUNIT_C_UNIT_REACTION = 0x6061E0,
 
+    // Embedded-addon plumbing (see src/addons/Embedded.cpp). Two file
+    // pipelines need intercepting because the engine reads text resources
+    // (`.lua`, `.toc`) via the high-level `FUN_FILE_READ` (open+read+close
+    // in one call) but textures (`.blp`) via the low-level `FUN_FILE_OPEN`
+    // → `FUN_FILE_READ_HANDLE` pair. Both pipelines need to serve our
+    // baked-in byte arrays when paths fall under
+    // `Interface\AddOns\MinimapBlips\`. `FUN_ADDON_INIT` post-hook calls
+    // `FUN_TOC_PARSER` with our addon name so the engine treats it as a
+    // registered addon. `FUN_STORM_SMEM_*` are the engine's allocators —
+    // we allocate through them so the caller's standard `SMemFree`
+    // reclaims our buffers cleanly.
+    FUN_FILE_READ = 0x00648620,
+    FUN_FILE_OPEN = 0x006477C0,
+    FUN_FILE_READ_HANDLE = 0x00648460,
+    FUN_FILE_SIZE = 0x006487F0,
+    FUN_TOC_PARSER = 0x0051C9B0,
+    FUN_ADDON_INIT = 0x0051C740,
+    FUN_STORM_SMEM_ALLOC = 0x006462E0,
+    FUN_STORM_SMEM_FREE = 0x00646430,
+
     // FrameScript_SignalEvent2 — fires a custom event with a printf-style
     // format string, dispatching arg1, arg2, ... to all frames that have
     // registered the event by name.

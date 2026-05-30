@@ -4,42 +4,17 @@ if not C_Minimap then
 	return
 end
 
-local BLIP_SCALE          = 1.0
-local BLIP_SCALE_TRACKING = 1.5
-
 local ROW_HEIGHT = 18
 local ROW_WIDTH  = 140
 local PADDING    = 6
 local BUTTON_RADIUS = 73
 local DEFAULT_ANGLE = math.pi
 
-local function Icon(name) return "Interface\\AddOns\\MinimapBlips\\icons\\" .. name end
-local NONE_ICON = Icon("None")
+local NONE_ICON = "Interface\\AddOns\\MinimapBlips\\icons\\None"
 
--- Register icons with the engine once at load. The registration table is
--- scoped to this `do` block so the rest of the file can't accidentally
--- read from it — the source of truth lives on the engine side, and we
--- ask for it back via `GetIconList` below. Swapping out the registration
--- source (e.g. loading icons from saved variables or a server payload)
--- means changing only this block.
-do
-	local E = Enum.MinimapBlip
-	C_Minimap.RegisterIcons({
-		{ type = E.Repair,       label = "Repair",        icon = Icon("Repair"),       		    scale = BLIP_SCALE_TRACKING },
-		{ type = E.Vendor,       label = "Vendor",        icon = "Interface\\Icons\\INV_Misc_Coin_02", scale = BLIP_SCALE },
-		{ type = E.Innkeeper,    label = "Innkeeper",     icon = Icon("Innkeeper"),               scale = BLIP_SCALE_TRACKING },
-		{ type = E.FlightMaster, label = "Flight Master", icon = Icon("FlightMaster"),            scale = BLIP_SCALE_TRACKING },
-		{ type = E.Battlemaster, label = "Battlemaster",  icon = Icon("BattleMaster"),            scale = BLIP_SCALE_TRACKING },
-		{ type = E.Trainer,      label = "Trainer",       icon = Icon("Profession"),              scale = BLIP_SCALE_TRACKING },
-		{ type = E.Auctioneer,   label = "Auctioneer",    icon = Icon("Auctioneer"),              scale = BLIP_SCALE_TRACKING },
-		{ type = E.Banker,       label = "Banker",        icon = Icon("Banker"),                  scale = BLIP_SCALE_TRACKING },
-		{ type = E.Mailbox,      label = "Mailbox",       icon = Icon("Mailbox"),                 scale = BLIP_SCALE_TRACKING },
-		{ type = E.StableMaster, label = "Stable Master", icon = Icon("StableMaster"),            scale = BLIP_SCALE_TRACKING },
-		{ type = E.Target,       label = TARGET,          icon = Icon("Target"),                  scale = BLIP_SCALE_TRACKING },
-		{ type = E.Focus,        label = FOCUS,           icon = Icon("Focus"),                   scale = BLIP_SCALE_TRACKING },
-	})
-end
-
+-- Default icon set lives in the DLL now (see kBlipTypes in Blips.cpp); we
+-- just read it back. The DLL pre-registers everything at module init, so
+-- GetIconList is ready by the time this addon runs.
 local ICONS = C_Minimap.GetIconList()
 local NUM_BLIPS = table.getn(ICONS)
 

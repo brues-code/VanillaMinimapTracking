@@ -22,22 +22,7 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
-      - name: Stage release bundle
-        shell: pwsh
-        run: |
-          $tag = '${{ github.ref_name }}'
-          $version = $tag -replace '^v',''
-          $stage = "VanillaMinimapTracking-$tag"
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item build/Release/VanillaMinimapTracking.dll $stage
-          Copy-Item -Recurse MinimapBlips $stage
-          # Stamp the addon's TOC version line from the tag (drops the leading `v`)
-          $toc = Join-Path $stage 'MinimapBlips/MinimapBlips.toc'
-          (Get-Content $toc) -replace '^## Version:.*', "## Version: $version" |
-            Set-Content $toc
-          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip"
-
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: VanillaMinimapTracking-${{ github.ref_name }}.zip
+          files: build/Release/VanillaMinimapTracking.dll
