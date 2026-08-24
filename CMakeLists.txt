@@ -61,7 +61,10 @@ add_custom_command(
     COMMENT "Embedding MinimapBlips addon into ${EMBEDDED_ADDON_HEADER}"
     VERBATIM)
 
-add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS} ${EMBEDDED_ADDON_HEADER})
+# The .def exports `Load` undecorated — VanillaFixes' post-injection entry
+# point (see src/DllMain.cpp).
+add_library(${PROJECT_NAME} SHARED ${SOURCES} ${HEADERS} ${EMBEDDED_ADDON_HEADER}
+                                   src/VanillaMinimapTracking.def)
 
 target_compile_definitions(
   ${PROJECT_NAME}

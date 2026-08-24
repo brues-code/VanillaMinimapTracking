@@ -17,10 +17,11 @@
 
 namespace Addons::Embedded {
 
-// Installs the file-read + addon-init hooks that make the engine treat
-// `MinimapBlips` as an installed addon even when nothing is on disk. Must
-// be called from DllMain after `MH_Initialize`. Returns FALSE (via the
-// HOOK_FUNCTION macro's early-out) on hook failure.
-BOOL InstallHooks();
+// Creates and queue-enables the file-read + addon-init hooks that make the
+// engine treat `MinimapBlips` as an installed addon even when nothing is on
+// disk. Call after `MH_Initialize`; the caller activates the batch with
+// `MH_ApplyQueued`. Returns FALSE (via the QUEUE_HOOK_FUNCTION macro's
+// early-out) on hook failure.
+BOOL QueueHooks();
 
 } // namespace Addons::Embedded

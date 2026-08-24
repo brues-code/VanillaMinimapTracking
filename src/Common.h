@@ -26,6 +26,21 @@
             return FALSE;                                                                          \
     }
 
+// Queue variant of HOOK_FUNCTION: creates the hook and queues its enable so
+// a single MH_ApplyQueued in the caller activates the whole batch in one
+// thread-freeze. Used by the deferred install path in DllMain.cpp, where the
+// game's main thread may already be running — the single apply makes the
+// hook set come up atomically instead of one prologue at a time.
+#define QUEUE_HOOK_FUNCTION(offset, hook, original)                                                \
+    {                                                                                              \
+        auto *target = reinterpret_cast<LPVOID>(offset);                                           \
+        if (MH_CreateHook(target, static_cast<LPVOID>(hook),                                       \
+                          reinterpret_cast<LPVOID *>(&original)) != MH_OK)                         \
+            return FALSE;                                                                          \
+        if (MH_QueueEnableHook(target) != MH_OK)                                                   \
+            return FALSE;                                                                          \
+    }
+
 #define UNHOOK_FUNCTION(offset, original)                                                          \
     {                                                                                              \
         auto *target = reinterpret_cast<LPVOID>(offset);                                           \

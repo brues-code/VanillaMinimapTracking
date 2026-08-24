@@ -451,12 +451,12 @@ void __fastcall AddonInit_h(const char *accountName) {
 
 } // namespace
 
-BOOL InstallHooks() {
-    HOOK_FUNCTION(Offsets::FUN_FILE_READ, FileRead_h, FileRead_o);
-    HOOK_FUNCTION(Offsets::FUN_FILE_OPEN, FileOpen_h, FileOpen_o);
-    HOOK_FUNCTION(Offsets::FUN_FILE_READ_HANDLE, FileReadHandle_h, FileReadHandle_o);
-    HOOK_FUNCTION(Offsets::FUN_FILE_SIZE, FileSize_h, FileSize_o);
-    HOOK_FUNCTION(Offsets::FUN_ADDON_INIT, AddonInit_h, AddonInit_o);
+BOOL QueueHooks() {
+    QUEUE_HOOK_FUNCTION(Offsets::FUN_FILE_READ, FileRead_h, FileRead_o);
+    QUEUE_HOOK_FUNCTION(Offsets::FUN_FILE_OPEN, FileOpen_h, FileOpen_o);
+    QUEUE_HOOK_FUNCTION(Offsets::FUN_FILE_READ_HANDLE, FileReadHandle_h, FileReadHandle_o);
+    QUEUE_HOOK_FUNCTION(Offsets::FUN_FILE_SIZE, FileSize_h, FileSize_o);
+    QUEUE_HOOK_FUNCTION(Offsets::FUN_ADDON_INIT, AddonInit_h, AddonInit_o);
     return TRUE;
 }
 
