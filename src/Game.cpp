@@ -153,7 +153,8 @@ C3Vector &normal = *reinterpret_cast<C3Vector *>(Offsets::CONST_NORMAL_VEC3);
 unsigned short *vertIndices = reinterpret_cast<unsigned short *>(Offsets::CONST_VERT_INDICES);
 const float &BLIP_HALF = *reinterpret_cast<float *>(Offsets::CONST_BLIP_HALF);
 
-void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray) {
+void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray,
+                        const TexCoord *texCoordOverride) {
     if (gxTex == nullptr)
         return;
 
@@ -169,14 +170,32 @@ void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bo
         vertices[i].z = scale * s_blipVertices[i].z;
     }
 
+    // Default to the engine's shared full-quad UVs; callers drawing an atlas
+    // cell (raid marks) pass their own.
+    const TexCoord *uv = (texCoordOverride != nullptr) ? texCoordOverride : &texCoords;
+
     GxRsSet(GxRs_Texture0, gxTex);
 
     GxPrimLockVertexPtrs(4, vertices, 12, &normal, 0, &color, 0, nullptr, 0,
-                         reinterpret_cast<C2Vector *>(&texCoords), 8, nullptr, 0);
+                         reinterpret_cast<C2Vector *>(const_cast<TexCoord *>(uv)), 8, nullptr, 0);
 
     GxPrimDrawElements(EGxPrim::GxPrim_TriangleStrip, 4, vertIndices);
 
     GxPrimUnlockVertexPtrs();
+}
+
+TexCoord RaidMarkAtlasTexCoord(int cell) {
+    // 4x4 atlas → 0.25 per cell on both axes (matches FrameXML's
+    // SetRaidTargetIconTexture). col/row select the sub-square; remapping
+    // the engine's full-quad corners into it keeps the same orientation.
+    constexpr float kStep = 0.25F;
+    const float left = static_cast<float>(cell % 4) * kStep;
+    const float top = static_cast<float>(cell / 4) * kStep;
+    auto remap = [&](C2Vector c) {
+        return C2Vector{left + c.x * kStep, top + c.y * kStep};
+    };
+    return TexCoord{remap(texCoords.bottomLeft), remap(texCoords.bottomRight),
+                    remap(texCoords.topLeft), remap(texCoords.topRight)};
 }
 
 } // namespace Game

@@ -72,6 +72,9 @@ struct TrackedObjectData {
     std::string subName;
     std::string typeName; // matches kBlipTypes[i].typeName (e.g. "vendor", "target")
     Blip blip;
+    // -1 = draw the whole texture; 0..7 = sample that cell of the raid-marker
+    // atlas (`blip.cacheEntry` is the shared atlas for every marked unit).
+    int atlasCell;
 };
 
 struct BlipHoverEntry {
@@ -90,6 +93,10 @@ struct BlipHoverState {
 
 volatile bool g_inLogout = false;
 
+// Number of raid-target-marker slots (star … skull); the length of the
+// engine's `VAR_RAID_TARGET_GUIDS` table and the atlas cell count.
+constexpr int kRaidMarkCount = 8;
+
 static bool g_hooksInstalled = false;
 static std::unordered_map<std::string, TextureCacheEntry> g_textureCache;
 static std::unordered_map<std::string, IconRegistration> g_registeredIcons;
@@ -101,6 +108,11 @@ static bool g_targetTracking = false;
 static uint64_t g_currentTargetGUID = 0;
 static bool g_focusTracking = false;
 static uint64_t g_focusGUID = 0;
+static bool g_raidMarkTracking = false;
+// The 8 marker GUIDs snapshotted from `VAR_RAID_TARGET_GUIDS` at the start of
+// each enum pass (mirrors how the target GUID is captured once per pass), or
+// 0 for an unassigned slot. Only read when `g_raidMarkTracking` is set.
+static uint64_t g_raidMarkGUIDs[kRaidMarkCount] = {};
 static uint64_t g_playerGUID = 0;
 // Resolved once per enum pass alongside g_playerGUID — every CheckObject call
 // in NpcFlag-tracked types needs it for the reaction filter, and resolving
@@ -139,6 +151,7 @@ enum class BlipKind {
     Special,    // "target" / "focus" — own per-type boolean flag
     NpcFlag,    // unit's m_npcFlags & engineValue
     GameObject, // gameobject's m_type == engineValue
+    RaidMark,   // unit whose GUID is in the engine's raid-marker table
 };
 
 struct BlipTypeDef {
@@ -204,6 +217,9 @@ static constexpr BlipTypeDef kBlipTypes[] = {
     {"Mailbox",           "mailbox",         BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX,              "Interface\\AddOns\\MinimapBlips\\icons\\Mailbox",         "Mailbox",           kScaleTracking, "",                       ""},
     {"Target",            "target",          BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Target",          "Target",            kScaleTracking, "",                       ""},
     {"Focus",             "focus",           BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Focus",           "Focus",             kScaleTracking, "",                       ""},
+    // Per-mark icon comes from the atlas at draw time (see DrawTrackedBlips);
+    // this path is the menu/button representative (whole 8-mark atlas).
+    {"RaidMark",          "raid mark",       BlipKind::RaidMark,   0,                                          "Interface\\TargetingFrame\\UI-RaidTargetingIcons",        "Raid Marks",        kScaleTracking, "",                       ""},
 };
 
 static const BlipTypeDef *FindBlipType(const std::string &typeName) {
@@ -252,7 +268,7 @@ static bool SubnameContainsAnySegment(const std::string &subName, const char *fi
 }
 
 static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, uint64_t guid,
-                        Blip blip, const char *typeName, std::string subName) {
+                        Blip blip, const char *typeName, std::string subName, int atlasCell = -1) {
     Game::C2Vector minimapPos;
     Game::C3Vector unitPos;
 
@@ -274,10 +290,38 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
 
     g_trackedObjectsData.push_back(
         {guid, minimapPos, wmoID != info->wmoID, objectptr->vftable->GetName(objectptr),
-         std::move(subName), typeName ? typeName : "", blip});
+         std::move(subName), typeName ? typeName : "", blip, atlasCell});
 }
 
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
+    // Raid marks take precedence over target/focus/flag blips: a mark is a
+    // deliberate coordination signal, so it should win when a unit is both
+    // marked and, say, the current target. Self is skipped — the player is
+    // the minimap centre and a mark there just overlaps the arrow.
+    if (g_raidMarkTracking && guid != g_playerGUID) {
+        for (int i = 0; i < kRaidMarkCount; ++i) {
+            if (g_raidMarkGUIDs[i] == 0 || guid != g_raidMarkGUIDs[i])
+                continue;
+            const auto iconIt = g_registeredIcons.find("raid mark");
+            if (iconIt != g_registeredIcons.end()) {
+                // Marks land on players (PvP) as well as creatures, so accept
+                // both object types — TYPEMASK_UNIT alone would miss players.
+                auto *unitptr = reinterpret_cast<Game::CGUnit_C *>(Game::ClntObjMgrObjectPtr(
+                    Game::TYPE_MASK::TYPEMASK_UNIT | Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr,
+                    guid, 0));
+                if (unitptr != nullptr) {
+                    auto *objptr = reinterpret_cast<Game::CGObject_C *>(unitptr);
+                    TrackObject(info, objptr, guid, iconIt->second.blip, "raid mark",
+                                ExtractUnitSubName(objptr), i);
+                    return true;
+                }
+            }
+            // Owned by the raid-mark path (a unit wears at most one mark);
+            // let the default blip draw rather than falling through.
+            return false;
+        }
+    }
+
     if (g_targetTracking && g_currentTargetGUID != 0 && guid == g_currentTargetGUID &&
         guid != g_playerGUID) {
         const auto iconIt = g_registeredIcons.find("target");
@@ -392,8 +436,14 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
     for (const auto &objData : g_trackedObjectsData) {
         if (objData.blip.cacheEntry == nullptr)
             continue;
-        Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
-                                 objData.blip.scale, objData.isInDifferentArea);
+        if (objData.atlasCell >= 0) {
+            const Game::TexCoord tc = Game::RaidMarkAtlasTexCoord(objData.atlasCell);
+            Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
+                                     objData.blip.scale, objData.isInDifferentArea, &tc);
+        } else {
+            Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
+                                     objData.blip.scale, objData.isInDifferentArea);
+        }
     }
 }
 
@@ -404,6 +454,12 @@ static bool IsUnitTracked(uint64_t guid) {
         return true;
     if (g_focusTracking && guid == g_focusGUID)
         return true;
+    if (g_raidMarkTracking) {
+        for (int i = 0; i < kRaidMarkCount; ++i) {
+            if (g_raidMarkGUIDs[i] != 0 && guid == g_raidMarkGUIDs[i])
+                return true;
+        }
+    }
     return false;
 }
 
@@ -500,6 +556,14 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
                            : nullptr;
         if (g_targetTracking) {
             g_currentTargetGUID = Game::GetGUIDFromName("target");
+        }
+        if (g_raidMarkTracking) {
+            // Snapshot the engine's marker table so every CheckObject in this
+            // pass tests a consistent set of GUIDs.
+            const auto *table = reinterpret_cast<const uint64_t *>(
+                static_cast<uintptr_t>(Offsets::VAR_RAID_TARGET_GUIDS));
+            for (int i = 0; i < kRaidMarkCount; ++i)
+                g_raidMarkGUIDs[i] = table[i];
         }
     }
     return ClntObjMgrEnumVisibleObjects_o(callback, context);
@@ -713,6 +777,18 @@ static void RegisterDefaultIcons() {
     }
 }
 
+// Maps a boolean-flagged type name (Special / RaidMark kinds) to its runtime
+// flag. Returns null for any other type name.
+static bool *SpecialTrackingFlag(const std::string &typeName) {
+    if (typeName == "target")
+        return &g_targetTracking;
+    if (typeName == "focus")
+        return &g_focusTracking;
+    if (typeName == "raid mark")
+        return &g_raidMarkTracking;
+    return nullptr;
+}
+
 enum class ApplyResult { Applied, NoChange, UnknownType, IconMissing };
 
 // Toggles tracking for a single type. `typeName` must be lowercase — this is
@@ -735,8 +811,10 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         return (it == g_registeredIcons.end()) ? nullptr : &it->second.blip;
     };
 
-    if (def->kind == BlipKind::Special) {
-        bool *flag = (typeName == "target") ? &g_targetTracking : &g_focusTracking;
+    if (def->kind == BlipKind::Special || def->kind == BlipKind::RaidMark) {
+        bool *flag = SpecialTrackingFlag(typeName);
+        if (flag == nullptr)
+            return ApplyResult::UnknownType;
         if (enabled == *flag)
             return ApplyResult::NoChange;
         if (enabled && needIcon() == nullptr)
@@ -871,7 +949,7 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     const ApplyResult r = ApplyTrack(typeName, enabled);
     if (r == ApplyResult::UnknownType) {
         Game::Lua::Error(
-            L, "Unknown tracking type. Supported types: target, focus, auctioneer, banker, "
+            L, "Unknown tracking type. Supported types: target, focus, raid mark, auctioneer, banker, "
                "battlemaster, flight master, innkeeper, item restore, mailbox, outdoor pvp, "
                "repair, stable master, trainer, transmog, vendor.");
         return 0;
@@ -1261,6 +1339,9 @@ void Reset() {
     g_currentTargetGUID = 0;
     g_focusTracking = false;
     g_focusGUID = 0;
+    g_raidMarkTracking = false;
+    for (auto &markGUID : g_raidMarkGUIDs)
+        markGUID = 0;
     g_playerGUID = 0;
     g_playerUnit = nullptr;
     g_enabledTypes.clear();

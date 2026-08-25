@@ -521,7 +521,18 @@ extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
 extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
 extern const CGUnit_C_UnitReaction_t CGUnit_C_UnitReaction;
 
-void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray);
+// Draws a blip texture at a minimap position. `texCoordOverride`, when
+// non-null, replaces the engine's full-quad UVs — used to sample a single
+// cell out of the raid-marker atlas (see `RaidMarkAtlasTexCoord`).
+void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray,
+                        const TexCoord *texCoordOverride = nullptr);
+
+// UVs for one cell of the `UI-RaidTargetingIcons` atlas (a 4x4 grid; the 8
+// raid marks occupy the top two rows). `cell` is 0-based: 0 = star … 7 =
+// skull, matching the `VAR_RAID_TARGET_GUIDS` slot order. Derived by
+// remapping the engine's own full-quad `texCoords` into the cell so the
+// blip keeps whatever UV orientation the engine renders with.
+TexCoord RaidMarkAtlasTexCoord(int cell);
 
 extern C3Vector *s_blipVertices;
 extern TexCoord &texCoords;

@@ -12,21 +12,36 @@ local DEFAULT_ANGLE = math.pi
 
 local NONE_ICON = "Interface\\AddOns\\MinimapBlips\\icons\\None"
 
+local RAID_MARK_TYPE = "raid mark"
+-- Skull = raid icon 8: col 3, row 1 of the 4x4 atlas (0.25 per cell).
+local SKULL_TEXCOORD = { 0.75, 1.0, 0.25, 0.5 }
+
+local function ApplyBlipIcon(texture, iconPath, blipType)
+	texture:SetTexture(iconPath)
+	if blipType == RAID_MARK_TYPE then
+		texture:SetTexCoord(SKULL_TEXCOORD[1], SKULL_TEXCOORD[2], SKULL_TEXCOORD[3], SKULL_TEXCOORD[4])
+	else
+		texture:SetTexCoord(0, 1, 0, 1)
+	end
+end
+
 -- Default icon set lives in the DLL now (see kBlipTypes in Blips.cpp); we
 -- just read it back. The DLL pre-registers everything at module init, so
 -- GetIconList is ready by the time this addon runs.
 local ICONS = C_Minimap.GetIconList()
 local NUM_BLIPS = table.getn(ICONS)
 
-local function GetBestTrackingTexture()
+-- Returns the icon path + type of the highest-priority tracked category, or
+-- the "none" icon (and nil type) when nothing is tracked.
+local function GetBestTracking()
 	local tracked = C_Minimap.GetTracked()
 	for i = NUM_BLIPS, 1, -1 do
 		local entry = ICONS[i]
 		if tracked[entry.type] then
-			return entry.icon
+			return entry.icon, entry.type
 		end
 	end
-	return NONE_ICON
+	return NONE_ICON, nil
 end
 
 local button = CreateFrame("Button", "MinimapIconBlips", Minimap)
@@ -58,7 +73,7 @@ function button:ADDON_LOADED()
 	icon:SetWidth(20)
 	icon:SetHeight(20)
 	icon:SetPoint("CENTER", self, "CENTER", 0, 0)
-	icon:SetTexture(GetBestTrackingTexture())
+	ApplyBlipIcon(icon, GetBestTracking())
 
 	self:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
@@ -82,7 +97,7 @@ function button:ADDON_LOADED()
 	self:RegisterEvent("PLAYER_FOCUS_CHANGED")
 	self:SetScript("OnEvent", function()
 		if event == "MINIMAP_UPDATE_TRACKING" then
-			icon:SetTexture(GetBestTrackingTexture())
+			ApplyBlipIcon(icon, GetBestTracking())
 		elseif event == "PLAYER_FOCUS_CHANGED" then
 			self:FOCUS_CHANGED()
 		end
@@ -120,7 +135,7 @@ function button:ADDON_LOADED()
 			end
 
 			local rowIcon = row:CreateTexture(nil, "ARTWORK")
-			rowIcon:SetTexture(entry.icon)
+			ApplyBlipIcon(rowIcon, entry.icon, entry.type)
 			rowIcon:SetWidth(14)
 			rowIcon:SetHeight(14)
 			rowIcon:SetPoint("LEFT", row, "LEFT", 18, 0)

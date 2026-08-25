@@ -100,6 +100,13 @@ enum Offsets {
     // first or risk an access violation pre-login.
     VAR_OBJECT_MANAGER_PTR = 0x00B41414,
 
+    // Raid-target-marker GUID table — 8 contiguous `uint64` slots, one per
+    // raid icon (slot 0 = star … slot 7 = skull), `0` when that marker is
+    // unassigned. Written by the `SMSG_RAID_TARGET_UPDATE` handler. Always
+    // valid memory (zeroed pre-login). Same address ClassicAPI's
+    // `Unit::RaidTarget` reads for the `markN` tokens.
+    VAR_RAID_TARGET_GUIDS = 0x00B71368,
+
     // Engine globals that the SavedVariables/AddOns.txt path-builder at
     // 0x0051EBE0 uses to format `WTF\Account\<account>\<realm>\<character>`.
     //
