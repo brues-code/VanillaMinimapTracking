@@ -54,14 +54,20 @@ function button:ADDON_LOADED()
 	self:SetFrameStrata("MEDIUM")
 	self:SetMovable(true)
 	self:RegisterForDrag("LeftButton")
+	self:SetClampedToScreen(true)
 
-	local function PositionButtonAt(angle)
+	local function RestoreButtonPosition()
 		self:ClearAllPoints()
-		self:SetPoint("CENTER", self:GetParent(), "CENTER",
-			BUTTON_RADIUS * math.cos(angle), BUTTON_RADIUS * math.sin(angle))
+		local pos = MinimapBlipsUI.buttonPos
+		if pos then
+			self:SetPoint("CENTER", self:GetParent(), "CENTER", pos.x, pos.y)
+		else
+			self:SetPoint("CENTER", self:GetParent(), "CENTER",
+				BUTTON_RADIUS * math.cos(DEFAULT_ANGLE), BUTTON_RADIUS * math.sin(DEFAULT_ANGLE))
+		end
 	end
 
-	PositionButtonAt(MinimapBlipsUI.buttonAngle or DEFAULT_ANGLE)
+	RestoreButtonPosition()
 
 	local border = self:CreateTexture(nil, "OVERLAY")
 	border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
@@ -175,22 +181,22 @@ function button:ADDON_LOADED()
 		menu:Show()
 	end)
 
-	local function FollowCursorAroundMinimap()
+	local function FollowCursor()
 		local parent = this:GetParent()
 		local mx, my = parent:GetCenter()
 		if not mx then return end
-		local cx, cy = GetCursorPosition()
 		local scale = parent:GetEffectiveScale()
-		cx, cy = cx / scale, cy / scale
-		local angle = math.atan2(cy - my, cx - mx)
-		PositionButtonAt(angle)
-		MinimapBlipsUI.buttonAngle = angle
+		local cx, cy = GetCursorPosition()
+		local x, y = cx / scale - mx, cy / scale - my
+		this:ClearAllPoints()
+		this:SetPoint("CENTER", parent, "CENTER", x, y)
+		MinimapBlipsUI.buttonPos = { x = x, y = y }
 	end
 
 	self:SetScript("OnDragStart", function()
 		if not IsShiftKeyDown() then return end
 		GameTooltip:Hide()
-		this:SetScript("OnUpdate", FollowCursorAroundMinimap)
+		this:SetScript("OnUpdate", FollowCursor)
 	end)
 
 	self:SetScript("OnDragStop", function()
