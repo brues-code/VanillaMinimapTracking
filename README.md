@@ -39,6 +39,21 @@ The current category menu (managed in
   Stable Master, Battlemaster, Vendor** — NPCs matched by their
   `m_npcFlags` field.
 - **Mailbox** — game objects of type `MAILBOX`.
+- **Party Members** — your party (or raid subgroup) as class-coloured dots.
+- **Raid Members** — every raid member. Members of your own subgroup get the
+  plain class-coloured dot; everyone else gets a class-coloured dot with a
+  black centre (as in the modern client). Also shows your party when you're
+  not in a raid.
+- **Raid Marks** — units wearing a raid target icon, drawn with the icon.
+
+Party/raid members are shown even outside visibility range, using the
+position the server streams for group members (the same data the world map
+uses), as long as they're on your continent and within the minimap radius.
+Dot colours come from `RAID_CLASS_COLORS` (the addon pushes the live table
+to the DLL, so class-colour mods are honoured). When a group member is also
+raid-marked, targeted or focused (and that category is tracked), that icon
+replaces the dot — precedence is raid mark > target > focus > dot. Dots are
+drawn underneath all other blips.
 
 Self-targeting and self-focus are filtered out — your own character won't
 get a target/focus blip placed on you.
@@ -95,6 +110,7 @@ they just read the registry back via `GetIconList`.
 | `C_Minimap.SetFocusByName(name)`                                   | —                   | Captures a unit by name (silent fail if not found).                         |
 | `C_Minimap.SetFocusByGUID(guid)`                                   | —                   | Pins a unit by GUID hex string (e.g. `"0x016000000123ABCD"`). Errors on invalid input. |
 | `C_Minimap.ClearFocus()`                                           | —                   | Drops the focus.                                                            |
+| `C_Minimap.SetClassColor(token, r, g, b)`                          | —                   | Colour (0–1 components) for party/raid dots of class `token` (e.g. `"MAGE"`). MinimapBlips pushes `RAID_CLASS_COLORS` through this automatically. |
 
 To detect whether the DLL is loaded, just check the namespace:
 `if C_Minimap then ... end`.

@@ -505,6 +505,11 @@ using CGUnit_C_CanAssist_t = bool(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *oth
 //   1 Hated, 2 Hostile, 3 Unfriendly, 4 Neutral, 5 Friendly, 6 Honored, 7 Revered, 8 Exalted.
 // CanAssist calls into this and bails when the result is < 4.
 using CGUnit_C_UnitReaction_t = int(__thiscall *)(CGUnit_C *thisptr, CGUnit_C *other);
+using ClntObjMgrGetMapId_t = uint32_t(__fastcall *)();
+// Name-cache lookup: `this` is the cache global; `unk` points to a zeroed
+// 8-byte scratch value (the engine passes the same). Callee pops 0x18.
+using NameCacheGet_t = const char *(__thiscall *)(void *cache, uint32_t guidLow, uint32_t guidHigh,
+                                                  void *unk, int, int, int);
 
 extern const GetGUIDFromName_t GetGUIDFromName;
 extern const ClntObjMgrObjectPtr_t ClntObjMgrObjectPtr;
@@ -520,12 +525,18 @@ extern const CWorld_QueryMapObjIDs_t CWorld_QueryMapObjIDs;
 extern const ClntObjMgrEnumVisibleObjects_t ClntObjMgrEnumVisibleObjects;
 extern const CGUnit_C_CanAssist_t CGUnit_C_CanAssist;
 extern const CGUnit_C_UnitReaction_t CGUnit_C_UnitReaction;
+extern const ClntObjMgrGetMapId_t ClntObjMgrGetMapId;
+extern const NameCacheGet_t NameCacheGet;
+
+constexpr CImVector kWhite = {0xFF, 0xFF, 0xFF, 0xFF};
 
 // Draws a blip texture at a minimap position. `texCoordOverride`, when
 // non-null, replaces the engine's full-quad UVs — used to sample a single
-// cell out of the raid-marker atlas (see `RaidMarkAtlasTexCoord`).
+// cell out of the raid-marker atlas (see `RaidMarkAtlasTexCoord`). `tint`
+// is the vertex colour (multiplies the texture) — white for normal icons,
+// a class colour for the white party/raid dots.
 void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray,
-                        const TexCoord *texCoordOverride = nullptr);
+                        const TexCoord *texCoordOverride = nullptr, CImVector tint = kWhite);
 
 // UVs for one cell of the `UI-RaidTargetingIcons` atlas (a 4x4 grid; the 8
 // raid marks occupy the top two rows). `cell` is 0-based: 0 = star … 7 =
