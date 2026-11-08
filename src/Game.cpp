@@ -125,6 +125,8 @@ BIND(CWorld_QueryMapObjIDs_t,        CWorld_QueryMapObjIDs,        FUN_CWORLD_QU
 BIND(ClntObjMgrEnumVisibleObjects_t, ClntObjMgrEnumVisibleObjects, FUN_CLNT_OBJ_MGR_ENUM_VISIBLE_OBJECTS);
 BIND(CGUnit_C_CanAssist_t,           CGUnit_C_CanAssist,           FUN_CGUNIT_C_CAN_ASSIST);
 BIND(CGUnit_C_UnitReaction_t,        CGUnit_C_UnitReaction,        FUN_CGUNIT_C_UNIT_REACTION);
+BIND(ClntObjMgrGetMapId_t,           ClntObjMgrGetMapId,           FUN_CLNT_OBJ_MGR_GET_MAP_ID);
+BIND(NameCacheGet_t,                 NameCacheGet,                 FUN_NAME_CACHE_GET);
 
 CStatus::CStatus()
     // `m_head` is a TSLink intrusive-list head pointing at itself, with the
@@ -154,13 +156,18 @@ unsigned short *vertIndices = reinterpret_cast<unsigned short *>(Offsets::CONST_
 const float &BLIP_HALF = *reinterpret_cast<float *>(Offsets::CONST_BLIP_HALF);
 
 void DrawMinimapTexture(CGxTex *gxTex, C2Vector minimapPosition, float scale, bool gray,
-                        const TexCoord *texCoordOverride) {
+                        const TexCoord *texCoordOverride, CImVector tint) {
     if (gxTex == nullptr)
         return;
 
-    CImVector color = {0xFF, 0xFF, 0xFF, 0xFF};
+    CImVector color = tint;
     if (gray) {
-        color = {0xFF, 0xB0, 0xB0, 0xB0};
+        // Same 0xB0/0xFF dim the engine applies to "different area" blips,
+        // applied on top of whatever tint the caller asked for.
+        auto dim = [](unsigned char c) {
+            return static_cast<unsigned char>((static_cast<unsigned>(c) * 0xB0U) / 0xFFU);
+        };
+        color = {dim(tint.b), dim(tint.g), dim(tint.r), tint.a};
     }
 
     C3Vector vertices[4];

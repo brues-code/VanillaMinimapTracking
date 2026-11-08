@@ -75,6 +75,15 @@ struct TrackedObjectData {
     // -1 = draw the whole texture; 0..7 = sample that cell of the raid-marker
     // atlas (`blip.cacheEntry` is the shared atlas for every marked unit).
     int atlasCell;
+    // Vertex colour. White for ordinary icons; the class colour for the
+    // white party/raid dot textures.
+    Game::CImVector tint = Game::kWhite;
+    // Draw order: lower layers draw first, so icons (target, marks, NPCs)
+    // sit on top of the group-member dots.
+    int layer = kLayerIcon;
+
+    static constexpr int kLayerGroupDot = 0;
+    static constexpr int kLayerIcon = 1;
 };
 
 struct BlipHoverEntry {
@@ -113,6 +122,20 @@ static bool g_raidMarkTracking = false;
 // each enum pass (mirrors how the target GUID is captured once per pass), or
 // 0 for an unassigned slot. Only read when `g_raidMarkTracking` is set.
 static uint64_t g_raidMarkGUIDs[kRaidMarkCount] = {};
+// Group-member tracking. "party" = your own party (or raid subgroup) as plain
+// class-coloured dots; "raid" = every raid member, where members outside your
+// subgroup get the dot-with-black-centre texture and your own subgroup keeps
+// the plain dot (matching the modern client).
+static bool g_partyTracking = false;
+static bool g_raidTracking = false;
+// GUIDs the group pass placed a blip for this enum pass. `CheckObject` and
+// the engine's party-listing hook skip these so each member gets exactly one
+// blip (ours) instead of ours plus the engine's default dot.
+static std::vector<uint64_t> g_groupBlipGUIDs;
+// Class token ("WARRIOR", …) → colour. Seeded with the stock 1.12
+// `RAID_CLASS_COLORS`; the addon overwrites it from the live Lua table via
+// `C_Minimap.SetClassColor`, so UI mods that recolour classes are honoured.
+static std::unordered_map<std::string, Game::CImVector> g_classColors;
 static uint64_t g_playerGUID = 0;
 // Resolved once per enum pass alongside g_playerGUID — every CheckObject call
 // in NpcFlag-tracked types needs it for the reaction filter, and resolving
@@ -152,6 +175,7 @@ enum class BlipKind {
     NpcFlag,    // unit's m_npcFlags & engineValue
     GameObject, // gameobject's m_type == engineValue
     RaidMark,   // unit whose GUID is in the engine's raid-marker table
+    Group,      // party / raid members — class-coloured dots
 };
 
 struct BlipTypeDef {
@@ -215,6 +239,9 @@ static constexpr BlipTypeDef kBlipTypes[] = {
     {"PoisonVendor",      "poison vendor",   BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Poisons",         "Poison Vendor",     kScaleTracking, kPoisonVendorSubnames,    ""},
     {"AmmunitionVendor",  "ammunition",      BlipKind::NpcFlag,    Game::UNIT_NPC_FLAG_VENDOR,                 "Interface\\AddOns\\MinimapBlips\\icons\\Ammunition",      "Ammunition",        kScaleTracking, kAmmunitionVendorSubnames,""},
     {"Mailbox",           "mailbox",         BlipKind::GameObject, Game::GAMEOBJECT_TYPE_MAILBOX,              "Interface\\AddOns\\MinimapBlips\\icons\\Mailbox",         "Mailbox",           kScaleTracking, "",                       ""},
+    // White textures, tinted per member with the class colour at draw time.
+    {"Party",             "party",           BlipKind::Group,      0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\PartyMember",     "Party Members",     kScaleNormal,   "",                       ""},
+    {"Raid",              "raid",            BlipKind::Group,      0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\RaidMember",      "Raid Members",      kScaleNormal,   "",                       ""},
     {"Target",            "target",          BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Target",          "Target",            kScaleTracking, "",                       ""},
     {"Focus",             "focus",           BlipKind::Special,    0,                                          "Interface\\AddOns\\MinimapBlips\\icons\\Focus",           "Focus",             kScaleTracking, "",                       ""},
     // Per-mark icon comes from the atlas at draw time (see DrawTrackedBlips);
@@ -293,7 +320,264 @@ static void TrackObject(Game::MINIMAPINFO *info, Game::CGObject_C *objectptr, ui
          std::move(subName), typeName ? typeName : "", blip, atlasCell});
 }
 
+// ---------------------------------------------------------------------------
+// Party / raid member blips
+// ---------------------------------------------------------------------------
+//
+// Brings the modern client's group-member minimap blips to 1.12: party
+// members as class-coloured dots, other raid members as class-coloured dots
+// with a black centre. We walk the engine's party/raid tables directly, which
+// also covers members outside visibility range: the engine keeps a
+// member-stats record per member (zone + int16 world X/Y, fed by
+// SMSG_PARTY_MEMBER_STATS) — the same data `GetPlayerMapPosition` uses.
+
+static bool IsGroupBlipGUID(uint64_t guid) {
+    return std::find(g_groupBlipGUIDs.begin(), g_groupBlipGUIDs.end(), guid) !=
+           g_groupBlipGUIDs.end();
+}
+
+struct GroupMember {
+    uint64_t guid;
+    bool sameParty;       // your party / raid subgroup → plain dot
+    const uint8_t *stats; // member-stats record (may be null)
+};
+
+// Fills `out` with every party or raid member except the player. In a raid,
+// "same party" is your raid subgroup (plus anything in the party table, which
+// the engine keeps in sync with the subgroup).
+static void CollectGroupMembers(std::vector<GroupMember> &out) {
+    out.clear();
+    const auto *partyGUIDs = reinterpret_cast<const uint64_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_PARTY_MEMBER_GUIDS));
+    auto inPartyTable = [&](uint64_t guid) {
+        for (int i = 0; i < Offsets::PARTY_MEMBER_COUNT; ++i) {
+            if (partyGUIDs[i] == guid)
+                return true;
+        }
+        return false;
+    };
+
+    const uint32_t raidCount = *reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_COUNT));
+    if (raidCount > 0) {
+        const auto *const *roster = reinterpret_cast<const uint8_t *const *>(
+            static_cast<uintptr_t>(Offsets::VAR_RAID_MEMBER_PTRS));
+        const uint32_t n = (std::min)(raidCount, static_cast<uint32_t>(Offsets::RAID_MEMBER_MAX));
+        auto recGUID = [](const uint8_t *rec) { return *reinterpret_cast<const uint64_t *>(rec); };
+        auto recSubgroup = [](const uint8_t *rec) {
+            return *reinterpret_cast<const int32_t *>(rec + Offsets::OFF_RAID_MEMBER_SUBGROUP);
+        };
+
+        int32_t playerSubgroup = -1;
+        for (uint32_t i = 0; i < n; ++i) {
+            if (roster[i] != nullptr && recGUID(roster[i]) == g_playerGUID) {
+                playerSubgroup = recSubgroup(roster[i]);
+                break;
+            }
+        }
+        for (uint32_t i = 0; i < n; ++i) {
+            const uint8_t *rec = roster[i];
+            if (rec == nullptr)
+                continue;
+            const uint64_t guid = recGUID(rec);
+            if (guid == 0 || guid == g_playerGUID)
+                continue;
+            const bool sameParty =
+                (playerSubgroup >= 0 && recSubgroup(rec) == playerSubgroup) || inPartyTable(guid);
+            out.push_back({guid, sameParty, rec + Offsets::OFF_RAID_MEMBER_STATS});
+        }
+        return;
+    }
+
+    for (int i = 0; i < Offsets::PARTY_MEMBER_COUNT; ++i) {
+        const uint64_t guid = partyGUIDs[i];
+        if (guid == 0 || guid == g_playerGUID)
+            continue;
+        const auto *stats = reinterpret_cast<const uint8_t *>(
+            static_cast<uintptr_t>(Offsets::VAR_PARTY_MEMBER_STATS) +
+            static_cast<uintptr_t>(i) * Offsets::PARTY_MEMBER_STATS_STRIDE);
+        out.push_back({guid, true, stats});
+    }
+}
+
+// AreaTable id → continent (map) id, or -1 if the id isn't a valid row.
+static int32_t ContinentOfArea(uint32_t areaId) {
+    const int32_t maxId = *reinterpret_cast<const int32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_AREA_TABLE_MAX_ID));
+    if (static_cast<int32_t>(areaId) > maxId)
+        return -1;
+    const auto *const *rows = *reinterpret_cast<const uint8_t *const *const *>(
+        static_cast<uintptr_t>(Offsets::VAR_AREA_TABLE_ROWS));
+    if (rows == nullptr || rows[areaId] == nullptr)
+        return -1;
+    return *reinterpret_cast<const int32_t *>(rows[areaId] + Offsets::OFF_AREA_TABLE_CONTINENT);
+}
+
+// ChrClasses id → `RAID_CLASS_COLORS` colour (white if unknown).
+static Game::CImVector ClassColorFromId(uint32_t classId) {
+    const uint32_t maxId = *reinterpret_cast<const uint32_t *>(
+        static_cast<uintptr_t>(Offsets::VAR_CHR_CLASSES_MAX_ID));
+    if (classId == 0 || classId > maxId)
+        return Game::kWhite;
+    const auto *const *rows = *reinterpret_cast<const uint8_t *const *const *>(
+        static_cast<uintptr_t>(Offsets::VAR_CHR_CLASSES_ROWS));
+    if (rows == nullptr || rows[classId] == nullptr)
+        return Game::kWhite;
+    const char *token =
+        *reinterpret_cast<const char *const *>(rows[classId] + Offsets::OFF_CHR_CLASSES_TOKEN);
+    if (token == nullptr)
+        return Game::kWhite;
+    const auto it = g_classColors.find(token);
+    return (it == g_classColors.end()) ? Game::kWhite : it->second;
+}
+
+// Name-cache record for `guid` (name c-string at +0, class id at +0x140), or
+// null when the name hasn't been cached yet.
+static const char *LookupNameCache(uint64_t guid) {
+    uint64_t scratch = 0;
+    return Game::NameCacheGet(reinterpret_cast<void *>(static_cast<uintptr_t>(Offsets::VAR_NAME_CACHE)),
+                              static_cast<uint32_t>(guid), static_cast<uint32_t>(guid >> 32),
+                              &scratch, 0, 0, 0);
+}
+
+static const IconRegistration *FindIcon(const char *typeName) {
+    const auto it = g_registeredIcons.find(typeName);
+    return (it == g_registeredIcons.end()) ? nullptr : &it->second;
+}
+
+// Places one blip per tracked group member and records its GUID so the
+// engine's default blip for that member is suppressed. Precedence for the
+// blip's icon: raid mark > target > focus > class-coloured dot. Runs once per
+// minimap enum pass, after the target / raid-mark snapshots are taken.
+static void TrackGroupMembers(Game::MINIMAPINFO *info) {
+    g_groupBlipGUIDs.clear();
+    if (!g_partyTracking && !g_raidTracking)
+        return;
+
+    static std::vector<GroupMember> members;
+    CollectGroupMembers(members);
+    if (members.empty())
+        return;
+
+    const IconRegistration *partyIcon = FindIcon("party");
+    const IconRegistration *raidIcon = FindIcon("raid");
+    const IconRegistration *markIcon = g_raidMarkTracking ? FindIcon("raid mark") : nullptr;
+    const IconRegistration *targetIcon = g_targetTracking ? FindIcon("target") : nullptr;
+    const IconRegistration *focusIcon = g_focusTracking ? FindIcon("focus") : nullptr;
+
+    const int32_t mapId = static_cast<int32_t>(Game::ClntObjMgrGetMapId());
+    const float unkScale = info->minimapFrame->FrameScriptPart.vftable->GetUnkScale(
+        &info->minimapFrame->FrameScriptPart);
+    const float radiusSq = info->radius * info->radius;
+
+    for (const auto &m : members) {
+        // Party-only tracking shows just your own party / subgroup.
+        if (!m.sameParty && !g_raidTracking)
+            continue;
+
+        float worldX = 0.0F;
+        float worldY = 0.0F;
+        bool gray = false;
+        std::string name;
+        uint32_t classId = 0;
+
+        auto *obj = Game::ClntObjMgrObjectPtr(Game::TYPE_MASK::TYPEMASK_PLAYER, nullptr, m.guid, 0);
+        if (obj != nullptr) {
+            // In visibility range: exact position + live unit fields.
+            Game::C3Vector pos;
+            obj->vftable->GetPosition(obj, &pos);
+            worldX = pos.x;
+            worldY = pos.y;
+            uint32_t wmoID = 0;
+            uint32_t mapObjID = 0;
+            uint32_t groupNum = 0;
+            Game::CWorld_QueryMapObjIDs(obj->m_worldData, &wmoID, &mapObjID, &groupNum);
+            gray = (wmoID != info->wmoID);
+            if (const char *n = obj->vftable->GetName(obj))
+                name = n;
+            const auto *unitData = reinterpret_cast<const Game::CGUnitData *>(obj->m_data);
+            classId = (unitData->m_bytes0 >> 8) & 0xFF; // UNIT_FIELD_BYTES_0 byte 1
+        } else {
+            // Out of range: fall back to the server-fed member-stats position,
+            // with the same validity checks the engine's party table uses.
+            const uint8_t *s = m.stats;
+            if (s == nullptr)
+                continue;
+            const uint8_t flags = s[Offsets::OFF_MEMBER_STATS_FLAGS];
+            if ((flags & Offsets::MEMBER_STATS_FLAG_HAS_POSITION) == 0 ||
+                (flags & Offsets::MEMBER_STATS_FLAG_HIDDEN) != 0)
+                continue;
+            const uint16_t zone =
+                *reinterpret_cast<const uint16_t *>(s + Offsets::OFF_MEMBER_STATS_ZONE);
+            if (ContinentOfArea(zone) != mapId)
+                continue;
+            worldX = static_cast<float>(*reinterpret_cast<const int16_t *>(s + Offsets::OFF_MEMBER_STATS_X));
+            worldY = static_cast<float>(*reinterpret_cast<const int16_t *>(s + Offsets::OFF_MEMBER_STATS_Y));
+            if (const char *rec = LookupNameCache(m.guid)) {
+                name = rec;
+                classId = *reinterpret_cast<const uint32_t *>(rec + Offsets::OFF_NAME_CACHE_CLASS);
+            }
+        }
+
+        // Same radius cut the engine applies to visible objects — keeps blips
+        // inside the minimap circle.
+        const float dx = worldX - info->currentPos.x;
+        const float dy = worldY - info->currentPos.y;
+        if (dx * dx + dy * dy > radiusSq)
+            continue;
+
+        const IconRegistration *icon = m.sameParty ? partyIcon : raidIcon;
+        const char *typeName = m.sameParty ? "party" : "raid";
+        int atlasCell = -1;
+        Game::CImVector tint = ClassColorFromId(classId);
+        int layer = TrackedObjectData::kLayerGroupDot;
+
+        int markCell = -1;
+        if (markIcon != nullptr) {
+            for (int i = 0; i < kRaidMarkCount; ++i) {
+                if (g_raidMarkGUIDs[i] != 0 && g_raidMarkGUIDs[i] == m.guid) {
+                    markCell = i;
+                    break;
+                }
+            }
+        }
+        if (markCell >= 0) {
+            icon = markIcon;
+            typeName = "raid mark";
+            atlasCell = markCell;
+        } else if (targetIcon != nullptr && m.guid == g_currentTargetGUID) {
+            icon = targetIcon;
+            typeName = "target";
+        } else if (focusIcon != nullptr && m.guid == g_focusGUID) {
+            icon = focusIcon;
+            typeName = "focus";
+        }
+        if (icon != partyIcon && icon != raidIcon) {
+            tint = Game::kWhite;
+            layer = TrackedObjectData::kLayerIcon;
+        }
+        if (icon == nullptr || icon->blip.cacheEntry == nullptr)
+            continue; // leave it to the engine's default blip
+
+        Game::C2Vector minimapPos;
+        Game::WorldPosToMinimapFrameCoords(&minimapPos, nullptr, info->currentPos, info->radius,
+                                           worldX, worldY, info->layoutScale, unkScale);
+
+        TrackedObjectData data{m.guid, minimapPos, gray, std::move(name), "", typeName,
+                               icon->blip, atlasCell};
+        data.tint = tint;
+        data.layer = layer;
+        g_trackedObjectsData.push_back(std::move(data));
+        g_groupBlipGUIDs.push_back(m.guid);
+    }
+}
+
 static bool CheckObject(Game::MINIMAPINFO *info, uint64_t guid) {
+    // Group members already got their blip (dot, or mark/target/focus icon)
+    // from `TrackGroupMembers`; claim them so the engine doesn't add its own.
+    if (!g_groupBlipGUIDs.empty() && IsGroupBlipGUID(guid))
+        return true;
+
     // Raid marks take precedence over target/focus/flag blips: a mark is a
     // deliberate coordination signal, so it should win when a unit is both
     // marked and, say, the current target. Self is skipped — the player is
@@ -433,16 +717,20 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
     // We are gathering the position in ObjectEnumProc because it is rate limited to avoid spamming
     // expensive calls. To do it in RenderObjectBlips, we can use DNInfo for current position,
     // MinimapGetWorldRadius() for world radius and minimapPtr +0x7C for layout scale.
-    for (const auto &objData : g_trackedObjectsData) {
-        if (objData.blip.cacheEntry == nullptr)
-            continue;
-        if (objData.atlasCell >= 0) {
-            const Game::TexCoord tc = Game::RaidMarkAtlasTexCoord(objData.atlasCell);
+    // Two passes so group-member dots sit underneath every icon blip.
+    for (int layer : {TrackedObjectData::kLayerGroupDot, TrackedObjectData::kLayerIcon}) {
+        for (const auto &objData : g_trackedObjectsData) {
+            if (objData.layer != layer || objData.blip.cacheEntry == nullptr)
+                continue;
+            Game::TexCoord tc;
+            const Game::TexCoord *uv = nullptr;
+            if (objData.atlasCell >= 0) {
+                tc = Game::RaidMarkAtlasTexCoord(objData.atlasCell);
+                uv = &tc;
+            }
             Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
-                                     objData.blip.scale, objData.isInDifferentArea, &tc);
-        } else {
-            Game::DrawMinimapTexture(objData.blip.cacheEntry->gxTex, objData.minimapPos,
-                                     objData.blip.scale, objData.isInDifferentArea);
+                                     objData.blip.scale, objData.isInDifferentArea, uv,
+                                     objData.tint);
         }
     }
 }
@@ -450,6 +738,8 @@ static void DrawTrackedBlips(Game::CGMinimapFrame *minimapPtr, Game::DNInfo *dnI
 static bool IsUnitTracked(uint64_t guid) {
     if (guid == 0)
         return false;
+    if (IsGroupBlipGUID(guid))
+        return true;
     if (g_targetTracking && guid == g_currentTargetGUID)
         return true;
     if (g_focusTracking && guid == g_focusGUID)
@@ -565,6 +855,10 @@ ClntObjMgrEnumVisibleObjects_h(Game::ClntObjMgrEnumVisibleObjectsCallback_t call
             for (int i = 0; i < kRaidMarkCount; ++i)
                 g_raidMarkGUIDs[i] = table[i];
         }
+        // For the minimap pass the enum context is the engine's MINIMAPINFO
+        // (built on the caller's stack just before this call). Group blips
+        // are placed up front so `CheckObject` can skip those GUIDs.
+        TrackGroupMembers(static_cast<Game::MINIMAPINFO *>(context));
     }
     return ClntObjMgrEnumVisibleObjects_o(callback, context);
 }
@@ -786,6 +1080,10 @@ static bool *SpecialTrackingFlag(const std::string &typeName) {
         return &g_focusTracking;
     if (typeName == "raid mark")
         return &g_raidMarkTracking;
+    if (typeName == "party")
+        return &g_partyTracking;
+    if (typeName == "raid")
+        return &g_raidTracking;
     return nullptr;
 }
 
@@ -811,7 +1109,8 @@ static ApplyResult ApplyTrack(const std::string &typeName, bool enabled) {
         return (it == g_registeredIcons.end()) ? nullptr : &it->second.blip;
     };
 
-    if (def->kind == BlipKind::Special || def->kind == BlipKind::RaidMark) {
+    if (def->kind == BlipKind::Special || def->kind == BlipKind::RaidMark ||
+        def->kind == BlipKind::Group) {
         bool *flag = SpecialTrackingFlag(typeName);
         if (flag == nullptr)
             return ApplyResult::UnknownType;
@@ -949,9 +1248,9 @@ static int __fastcall Script_MinimapBlip_Track(void *L) {
     const ApplyResult r = ApplyTrack(typeName, enabled);
     if (r == ApplyResult::UnknownType) {
         Game::Lua::Error(
-            L, "Unknown tracking type. Supported types: target, focus, raid mark, auctioneer, banker, "
-               "battlemaster, flight master, innkeeper, item restore, mailbox, outdoor pvp, "
-               "repair, stable master, trainer, transmog, vendor.");
+            L, "Unknown tracking type. Supported types: target, focus, raid mark, party, raid, "
+               "auctioneer, banker, battlemaster, flight master, innkeeper, mailbox, repair, "
+               "stable master, trainer, vendor, reagent vendor, poison vendor, ammunition.");
         return 0;
     }
     if (r == ApplyResult::IconMissing) {
@@ -1282,6 +1581,47 @@ static int __fastcall Script_MinimapBlip_ClearFocus(void * /*L*/) {
     return 0;
 }
 
+static Game::CImVector MakeColor(double r, double g, double b) {
+    auto byte = [](double v) {
+        if (v < 0.0)
+            v = 0.0;
+        if (v > 1.0)
+            v = 1.0;
+        return static_cast<unsigned char>(v * 255.0 + 0.5);
+    };
+    return {byte(b), byte(g), byte(r), 0xFF};
+}
+
+// Stock 1.12 FrameXML `RAID_CLASS_COLORS` — fallback until the addon pushes
+// the live table (which may have been recoloured by the server or a UI mod).
+static void SeedDefaultClassColors() {
+    g_classColors.clear();
+    g_classColors["WARRIOR"] = MakeColor(0.78, 0.61, 0.43);
+    g_classColors["MAGE"] = MakeColor(0.41, 0.80, 0.94);
+    g_classColors["ROGUE"] = MakeColor(1.00, 0.96, 0.41);
+    g_classColors["DRUID"] = MakeColor(1.00, 0.49, 0.04);
+    g_classColors["HUNTER"] = MakeColor(0.67, 0.83, 0.45);
+    g_classColors["SHAMAN"] = MakeColor(0.96, 0.55, 0.73);
+    g_classColors["PRIEST"] = MakeColor(1.00, 1.00, 1.00);
+    g_classColors["WARLOCK"] = MakeColor(0.58, 0.51, 0.79);
+    g_classColors["PALADIN"] = MakeColor(0.96, 0.55, 0.73);
+}
+
+// `C_Minimap.SetClassColor(classToken, r, g, b)` — sets the colour used for
+// party/raid dots of that class. Components are 0..1, like RAID_CLASS_COLORS.
+static int __fastcall Script_MinimapBlip_SetClassColor(void *L) {
+    if (!Game::Lua::IsString(L, 1) || !Game::Lua::IsNumber(L, 2) || !Game::Lua::IsNumber(L, 3) ||
+        !Game::Lua::IsNumber(L, 4)) {
+        Game::Lua::Error(L, "Usage: C_Minimap.SetClassColor(classToken, r, g, b)");
+        return 0;
+    }
+    std::string token = Game::Lua::ToString(L, 1);
+    std::transform(token.begin(), token.end(), token.begin(), ::toupper);
+    g_classColors[token] = MakeColor(Game::Lua::ToNumber(L, 2), Game::Lua::ToNumber(L, 3),
+                                     Game::Lua::ToNumber(L, 4));
+    return 0;
+}
+
 static void RegisterLuaFunctions() {
     // Install our hooks once at module-register time and leave them up for
     // the DLL's lifetime. MinHook's enable/disable suspends every thread in
@@ -1297,6 +1637,7 @@ static void RegisterLuaFunctions() {
     // Lua-side `C_Minimap.RegisterIcon[s]` round-trip from the addon; that
     // API is gone now — defaults register here at module-init.
     RegisterDefaultIcons();
+    SeedDefaultClassColors();
 
     constexpr const char *NS = "C_Minimap";
     Game::Lua::RegisterTableFunction(NS, "Track", &Script_MinimapBlip_Track);
@@ -1312,6 +1653,7 @@ static void RegisterLuaFunctions() {
     Game::Lua::RegisterTableFunction(NS, "SetFocusByName", &Script_MinimapBlip_SetFocusByName);
     Game::Lua::RegisterTableFunction(NS, "SetFocusByGUID", &Script_MinimapBlip_SetFocusByGUID);
     Game::Lua::RegisterTableFunction(NS, "ClearFocus", &Script_MinimapBlip_ClearFocus);
+    Game::Lua::RegisterTableFunction(NS, "SetClassColor", &Script_MinimapBlip_SetClassColor);
 
     constexpr int kBlipTypeCount = static_cast<int>(sizeof(kBlipTypes) / sizeof(kBlipTypes[0]));
     Game::Lua::EnumEntry enumEntries[kBlipTypeCount];
@@ -1342,6 +1684,9 @@ void Reset() {
     g_raidMarkTracking = false;
     for (auto &markGUID : g_raidMarkGUIDs)
         markGUID = 0;
+    g_partyTracking = false;
+    g_raidTracking = false;
+    g_groupBlipGUIDs.clear();
     g_playerGUID = 0;
     g_playerUnit = nullptr;
     g_enabledTypes.clear();

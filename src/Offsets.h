@@ -107,6 +107,53 @@ enum Offsets {
     // `Unit::RaidTarget` reads for the `markN` tokens.
     VAR_RAID_TARGET_GUIDS = 0x00B71368,
 
+    // ---- Group (party / raid) membership & positions ----------------------
+    // Reverse-engineered from the engine's own users: `IsInParty` (0x4E7F70),
+    // `IsInRaid` (0x4BAEE0), `GetPlayerMapPosition` (0x4A8610), the party
+    // minimap table builder (0x6DAD10) and `GetRaidRosterInfo` (0x4BB560).
+    //
+    // Party: 4 contiguous `uint64` GUIDs (0 = empty slot). Each slot has a
+    // parallel "member stats" record (fed by SMSG_PARTY_MEMBER_STATS).
+    VAR_PARTY_MEMBER_GUIDS = 0x00BC6F48,
+    VAR_PARTY_MEMBER_STATS = 0x00BC70B0,
+    PARTY_MEMBER_STATS_STRIDE = 0x148,
+    PARTY_MEMBER_COUNT = 4,
+    // Raid: `[VAR_RAID_MEMBER_COUNT]` live entries in an array of 40 pointers
+    // to roster records. Record: +0 GUID, +8 subgroup (0-based), and the same
+    // member-stats layout embedded at +0x10.
+    VAR_RAID_MEMBER_COUNT = 0x00B713E0,
+    VAR_RAID_MEMBER_PTRS = 0x00B712A8,
+    RAID_MEMBER_MAX = 40,
+    OFF_RAID_MEMBER_SUBGROUP = 0x08,
+    OFF_RAID_MEMBER_STATS = 0x10,
+    // Member-stats record layout (shared by party and raid). Gives a position
+    // for members outside the object manager's visibility range.
+    OFF_MEMBER_STATS_FLAGS = 0x08, // bit 0x01 = has position, 0x20 = hide
+    OFF_MEMBER_STATS_ZONE = 0x14,  // uint16 AreaTable id
+    OFF_MEMBER_STATS_X = 0x16,     // int16 world X
+    OFF_MEMBER_STATS_Y = 0x18,     // int16 world Y
+    MEMBER_STATS_FLAG_HAS_POSITION = 0x01,
+    MEMBER_STATS_FLAG_HIDDEN = 0x20,
+
+    // `ClntObjMgrGetMapId` — current continent/instance map id.
+    FUN_CLNT_OBJ_MGR_GET_MAP_ID = 0x00468580,
+    // AreaTable.dbc row table: rows[id] → row, row+4 = continent (map) id.
+    VAR_AREA_TABLE_ROWS = 0x00C0E048,
+    VAR_AREA_TABLE_MAX_ID = 0x00C0E04C,
+    OFF_AREA_TABLE_CONTINENT = 0x04,
+    // ChrClasses.dbc row table: rows[classId] → row, row+0x38 = file token
+    // ("WARRIOR", …) — the same key `RAID_CLASS_COLORS` uses.
+    VAR_CHR_CLASSES_ROWS = 0x00C0DEF4,
+    VAR_CHR_CLASSES_MAX_ID = 0x00C0DEF8,
+    OFF_CHR_CLASSES_TOKEN = 0x38,
+    // Player name cache (`DBCache<NameCacheRec>`): `__thiscall` lookup by
+    // GUID returning the record (name c-string at +0, class id at +0x140), or
+    // null when uncached. Used by `UnitClass` / `GetRaidRosterInfo` for units
+    // outside visibility range.
+    FUN_NAME_CACHE_GET = 0x0055F080,
+    VAR_NAME_CACHE = 0x00C0E228,
+    OFF_NAME_CACHE_CLASS = 0x140,
+
     // Engine globals that the SavedVariables/AddOns.txt path-builder at
     // 0x0051EBE0 uses to format `WTF\Account\<account>\<realm>\<character>`.
     //

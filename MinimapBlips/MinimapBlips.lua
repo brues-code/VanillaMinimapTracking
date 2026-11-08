@@ -16,12 +16,40 @@ local RAID_MARK_TYPE = "raid mark"
 -- Skull = raid icon 8: col 3, row 1 of the 4x4 atlas (0.25 per cell).
 local SKULL_TEXCOORD = { 0.75, 1.0, 0.25, 0.5 }
 
+-- Party / raid dots are white textures the DLL tints per member with the
+-- class colour. In the menu and on the button we tint them with the player's
+-- own class colour so they read as "a class-coloured dot".
+local GROUP_TYPES = { ["party"] = true, ["raid"] = true }
+
+local function PlayerClassColor()
+	local _, token = UnitClass("player")
+	local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+	if c then return c.r, c.g, c.b end
+	return 1, 1, 1
+end
+
+-- Hands the live RAID_CLASS_COLORS table to the DLL so dot colours follow
+-- whatever the UI (or a class-colour mod) has set.
+local function PushClassColors()
+	if not RAID_CLASS_COLORS or not C_Minimap.SetClassColor then return end
+	for token, c in pairs(RAID_CLASS_COLORS) do
+		if type(token) == "string" and type(c) == "table" and c.r and c.g and c.b then
+			C_Minimap.SetClassColor(token, c.r, c.g, c.b)
+		end
+	end
+end
+
 local function ApplyBlipIcon(texture, iconPath, blipType)
 	texture:SetTexture(iconPath)
 	if blipType == RAID_MARK_TYPE then
 		texture:SetTexCoord(SKULL_TEXCOORD[1], SKULL_TEXCOORD[2], SKULL_TEXCOORD[3], SKULL_TEXCOORD[4])
 	else
 		texture:SetTexCoord(0, 1, 0, 1)
+	end
+	if blipType and GROUP_TYPES[blipType] then
+		texture:SetVertexColor(PlayerClassColor())
+	else
+		texture:SetVertexColor(1, 1, 1)
 	end
 end
 
@@ -99,13 +127,22 @@ function button:ADDON_LOADED()
 	menu:SetBackdropColor(0.09, 0.09, 0.09, 0.9)
 	menu:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
 	menu:Hide()
+	PushClassColors()
+
 	self:RegisterEvent("MINIMAP_UPDATE_TRACKING")
 	self:RegisterEvent("PLAYER_FOCUS_CHANGED")
+	-- Re-push on entering the world: class-colour mods often rewrite
+	-- RAID_CLASS_COLORS after we load; also UnitClass("player") is reliable
+	-- by then for the button tint.
+	self:RegisterEvent("PLAYER_ENTERING_WORLD")
 	self:SetScript("OnEvent", function()
 		if event == "MINIMAP_UPDATE_TRACKING" then
 			ApplyBlipIcon(icon, GetBestTracking())
 		elseif event == "PLAYER_FOCUS_CHANGED" then
 			self:FOCUS_CHANGED()
+		elseif event == "PLAYER_ENTERING_WORLD" then
+			PushClassColors()
+			ApplyBlipIcon(icon, GetBestTracking())
 		end
 	end)
 
